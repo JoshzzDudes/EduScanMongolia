@@ -1,0 +1,4 @@
+# never commit student data or backups
+*.json
+!manifest.webmanifest
+__pycache__/
