@@ -742,19 +742,21 @@ function wrapText(ctx, s, maxW) {
   return out;
 }
 const estLines = s => String(s || '').split('\n').map(p => p.trim()).filter(Boolean).reduce((a, p) => a + Math.ceil(p.length / 100), 0);
+// task text for a sheet whose version the student marks: every version's text, each labelled
+const allVerText = (ex, i) => ex.versions.map(v => `${v} хувилбар: ${wText(ex, i, v, 'prompt')}`).join('\n');
 // 0 = no written tasks on the sheet (none, or written on the exam paper), 1 = bottom of the front page, 2 = separate page 2 (back side)
 function wrPage(ex) {
   const wr = ex.written || []; if (!wr.length || ex.writtenOn === 'paper') return 0;
   if (ex._page) return ex._page;
-  // the longest version's text decides, so every version prints on the same page
-  const longest = t => [t.prompt, ...Object.values(t.v || {}).map(x => x.prompt || '')].reduce((a, b) => estLines(b) > estLines(a) ? b : a, '');
-  const free = WR_BOTTOM - WR_TOP - WR_GAP * (wr.length - 1) - wr.reduce((a, t) => a + wrHead(estLines(longest(t))), 0);
+  // the all-versions text decides, so every version's sheet prints on the same page
+  const txt = (t, i) => nVer(ex) > 1 ? allVerText(ex, i) : t.prompt;
+  const free = WR_BOTTOM - WR_TOP - WR_GAP * (wr.length - 1) - wr.reduce((a, t, i) => a + wrHead(estLines(txt(t, i))), 0);
   return free / wr.length >= WR_MIN_FRONT ? 1 : 2;
 }
 // the exam as printed for one version: written task text swapped in, page choice kept from the whole exam
 function exV(ex, v) {
   if (nVer(ex) < 2 || !(ex.written || []).length) return ex;
-  return { ...ex, _page: wrPage(ex), written: ex.written.map((t, i) => ({ ...t, prompt: v ? wText(ex, i, v, 'prompt') : 'Даалгаврын өгүүлбэрийг өөрийн хувилбарын шалгалтын материалаас харна уу.' })) };
+  return { ...ex, _page: wrPage(ex), written: ex.written.map((t, i) => ({ ...t, prompt: v ? wText(ex, i, v, 'prompt') : allVerText(ex, i) })) };
 }
 function wrLayout(ex, ctx) {
   const wr = ex.written || []; if (!wr.length || !wrPage(ex)) return null;
@@ -796,7 +798,8 @@ function fitText(ctx, s, maxW) {
   return s + '…';
 }
 function drawSheet(ctx, p, ex, opt = {}) {
-  ex = exV(ex, opt.version);
+  // textV: the version whose task text a blank sheet carries while the student still marks the version bubble
+  ex = exV(ex, opt.version || opt.textV);
   const cls = klass(opt.classId ?? ex.classId), st = opt.student;
   const F = (sz, w = 400, fam = '"Golos Text", Arial, sans-serif') => `${w} ${sz}px ${fam}`;
   ctx.save(); ctx.scale(p, p);
@@ -813,7 +816,7 @@ function drawSheet(ctx, p, ex, opt = {}) {
   ctx.fillStyle = '#111'; ctx.font = F(3.2, 600); ctx.fillText(fitText(ctx, ex.name, 112), 14, 25.5);
   ctx.textAlign = 'right'; ctx.font = F(2.9);
   ctx.fillText([ex.subject, cls?.name, ex.date].filter(Boolean).join(' · '), 196, 25.5); ctx.textAlign = 'left';
-  if (back) { drawBack(ctx, ex, st, F); ctx.restore(); return; }
+  if (back) { drawBack(ctx, ex, st, F, opt.version || opt.textV); ctx.restore(); return; }
   ctx.font = F(2.9, 500); ctx.fillText('Овог, нэр:', 14, 35); ctx.fillText('Анги:', 140, 35);
   ctx.strokeStyle = '#777'; ctx.lineWidth = 0.2;
   ctx.beginPath(); ctx.moveTo(29, 35.6); ctx.lineTo(136, 35.6); ctx.moveTo(149, 35.6); ctx.lineTo(196, 35.6); ctx.stroke();
@@ -874,7 +877,7 @@ function drawSheet(ctx, p, ex, opt = {}) {
   ctx.restore();
 }
 // page 2: written tasks only, same corner markers so it can be photographed and straightened
-function drawBack(ctx, ex, st, F) {
+function drawBack(ctx, ex, st, F, v) {
   ctx.fillStyle = '#000'; ctx.fillRect(BACK_ID[0] - 3, BACK_ID[1] - 3, 6, 6);
   ctx.fillStyle = '#111'; ctx.font = F(2.9, 500);
   ctx.fillText('Овог, нэр:', 14, 35); ctx.fillText('Анги:', 122, 35); ctx.fillText('Код:', 161, 35);
@@ -890,7 +893,7 @@ function drawBack(ctx, ex, st, F) {
     ctx.fillStyle = '#111'; ctx.font = F(3.5, 500); ctx.fillText(fitText(ctx, fullName(st), 86), 31, 34.6);
     const sc = klass(st.classId); if (sc) ctx.fillText(fitText(ctx, sc.name, 24), 133, 34.6);
   }
-  ctx.fillStyle = '#111'; ctx.font = F(2.9, 700); ctx.fillText('II хэсэг. Задгай даалгавар', 14, 44.6);
+  ctx.fillStyle = '#111'; ctx.font = F(2.9, 700); ctx.fillText('II хэсэг. Задгай даалгавар' + (v && nVer(ex) > 1 ? ` · ${v} хувилбар` : ''), 14, 44.6);
   ctx.textAlign = 'right'; ctx.fillStyle = '#444'; ctx.font = F(2.7, 500);
   ctx.fillText(`Нийт ${fmt(wrTotal(ex))} оноо`, 196, 44.6); ctx.textAlign = 'left';
   const L = wrLayout(ex, ctx);
@@ -1214,6 +1217,8 @@ function sheetPages(ex) {
     return [{ student: s, classId, fillKey: true, version: fixed || vs[0] || '' }];
   }
   if (sv === 'alt' && vs.length) return vs.map(v => ({ classId, version: v }));
+  // blank sheets the student marks: one sheet per version, each carrying only that version's task text
+  if (vs.length && !fixed && wrPage(ex)) return vs.map(v => ({ classId, version: '', textV: v }));
   return [{ classId, version: fixed }];
 }
 function xlsxBlob(sheets) {
@@ -1843,11 +1848,12 @@ function render() {
   try { window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } }); } catch {}
 }
 function after() {
-  [['#sheetPrev', 1], ['#sheetPrev2', 2]].forEach(([sel, page]) => {
-    const c = $(sel); if (!c) return;
+  // data-prev="i:page": sheet i of sheetPages, front or back
+  $$('canvas[data-prev]').forEach(c => {
     const ex = exam(UI.sheet.examId); if (!ex) return;
-    const draw = () => { const ctx = c.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); drawSheet(ctx, c.width / 210, ex, { ...(sheetPages(ex)[0] || {}), page }); };
-    draw(); document.fonts?.ready.then(() => { if ($(sel) === c) draw(); });
+    const [i, page] = c.dataset.prev.split(':').map(Number);
+    const draw = () => { const ctx = c.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); drawSheet(ctx, c.width / 210, ex, { ...(sheetPages(ex)[i] || {}), page }); };
+    draw(); document.fonts?.ready.then(() => { if (c.isConnected) draw(); });
   });
   const host = $('#edImg');
   if (host && E?.overlay) host.prepend(E.overlay);
@@ -2252,6 +2258,7 @@ function pSheets() {
   const classId = UI.sheet.classId || ex.classId;
   const nSt = studentsOf(classId).filter(s => s.active !== false).length;
   const back = wrPage(ex) === 2;
+  const pgs = sheetPages(ex), split = pgs.some(p => p.textV);
   return `<h1>Хариултын хуудас</h1>
   <div class="card"><div class="fields">
     <label class="field">Шалгалт<select id="shExam">${examOpts(ex.id)}</select></label>
@@ -2259,17 +2266,17 @@ function pSheets() {
     <label class="field">Хуудасны төрөл<select id="shMode">
       ${opt('blank', 'Хоосон хуудас (1)', UI.sheet.mode)}${opt('named', `Сурагч бүрийн нэр, кодтой (${nSt})`, UI.sheet.mode)}${opt('filled', 'Туршилтын хуудас: зөв хариулт бөглөсөн', UI.sheet.mode)}</select></label>
     ${nVer(ex) > 1 ? `<label class="field">Хувилбар<select id="shVer">
-      ${UI.sheet.mode === 'filled' ? '' : opt('self', 'Сурагч өөрөө будна', UI.sheet.v || 'self')}
+      ${UI.sheet.mode === 'filled' ? '' : opt('self', 'Сурагч өөрөө будна' + (!wrPage(ex) ? '' : UI.sheet.mode === 'named' ? ' (бүх хувилбарын даалгавар хэвлэнэ)' : ' (даалгавар хувилбар бүрээр тусдаа)'), UI.sheet.v || 'self')}
       ${UI.sheet.mode === 'filled' ? '' : opt('alt', UI.sheet.mode === 'named' ? `Ээлжлэн: ${ex.versions.join(', ')}, …` : 'Хувилбар бүрээр нэг хуудас', UI.sheet.v)}
       ${ex.versions.map(v => opt(v, `${v} хувилбар (урьдчилж будсан)`, UI.sheet.mode === 'filled' && !ex.versions.includes(UI.sheet.v) ? ex.versions[0] : UI.sheet.v)).join('')}</select></label>` : ''}
   </div>
   <p class="small muted">${ex.count} асуулт · ${ex.choices} сонголт${(ex.written || []).length ? ` · ${ex.written.length} задгай даалгавар${back ? ' (2-р нүүрт)' : ''}` : ''}. Хуудас 60 хүртэлх асуулт, 4 оронтой сурагчийн код, задгай даалгаврын бүтэн текст ба шугамтай хариултын зайтай.</p>
-  ${back ? `<p class="notice">${ic('files')}<span>Задгай даалгавар олон тул хуудасны <b>ар талд (2-р нүүрт)</b> тусад нь хэвлэгдэнэ. PDF-д сурагч бүрийн 1, 2-р нүүр дараалан орно.</span></p>` : ''}</div>
+  ${back ? `<p class="notice">${ic('files')}<span>Задгай даалгавар олон тул хуудасны <b>ар талд (2-р нүүрт)</b> тусад нь хэвлэгдэнэ. ${split ? `PDF-д ${ex.versions.join(', ')} хувилбар тус бүрийн 1, 2-р нүүр дараалан орно (${pgs.length * 2} хуудас). Хувилбар бүрийн 2-р нүүрэнд зөвхөн тэр хувилбарын даалгавар байна. Хувилбар бүрийг шалгалтын материалынхаа тоогоор олшруулна.` : 'PDF-д сурагч бүрийн 1, 2-р нүүр дараалан орно.'}</span></p>` : ''}</div>
   <div class="sheetwrap">
     <div class="stack">
       ${back ? '<p class="eyebrow">1-р нүүр</p>' : ''}
-      <canvas id="sheetPrev" class="sheetprev" width="1260" height="1782" aria-label="Хариултын хуудасны загвар"></canvas>
-      ${back ? '<p class="eyebrow" style="margin-top:6px">2-р нүүр (ар тал)</p><canvas id="sheetPrev2" class="sheetprev" width="1260" height="1782" aria-label="Хариултын хуудасны 2-р нүүр"></canvas>' : ''}
+      <canvas data-prev="0:1" class="sheetprev" width="1260" height="1782" aria-label="Хариултын хуудасны загвар"></canvas>
+      ${back ? (split ? pgs : [pgs[0]]).map((p, i) => `<p class="eyebrow" style="margin-top:6px">2-р нүүр (ар тал)${split ? ` · ${p.textV} хувилбар` : ''}</p><canvas data-prev="${i}:2" class="sheetprev" width="1260" height="1782" aria-label="Хариултын хуудасны 2-р нүүр${split ? ', ' + p.textV + ' хувилбар' : ''}"></canvas>`).join('') : ''}
     </div>
     <div class="stack">
       <div class="card"><h2>Татах</h2>
