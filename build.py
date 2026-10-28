@@ -42,6 +42,9 @@ img { max-width: 100%; }
   display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 999px; padding: 12px 18px; font: 600 14.5px "Golos Text", system-ui, sans-serif;
   color: #fff; background: linear-gradient(135deg, #4f6bff, #8b5cf6); box-shadow: 0 8px 24px rgba(79,107,255,0.4); cursor: pointer; }
 </style>
+<!-- accounts + sync: must run before the app script, which asks window.EDU_CLOUD at start -->
+<script src="firebase-config.js"></script>
+<script src="cloud.js"></script>
 '''
 
 TAIL = '''

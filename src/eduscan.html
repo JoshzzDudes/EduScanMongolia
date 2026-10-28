@@ -544,12 +544,20 @@ async function useCap(name) {
 }
 const KINDS = ['classes', 'students', 'exams', 'attempts', 'settings'];
 async function initStore() {
-  const [db, user, sample, downloads] = await Promise.all(['db', 'user', 'sample', 'downloads'].map(useCap));
+  let [db, user, sample, downloads] = await Promise.all(['db', 'user', 'sample', 'downloads'].map(useCap));
   Object.assign(Cap, { db, user, sample, downloads });
   if (sample) { try { const l = await sample.limits(); Cap.canImages = !!l.images; Cap.maxImages = l.images?.maxCount || 1; } catch {} }
   if (user) {
     try { Cap.uid = await user.id(); } catch {}
     try { const me = await user.me(); Cap.name = me?.name || ''; } catch {}
+  }
+  // own web address: Google sign-in + Firebase cloud (set up by the standalone build when configured)
+  if (!db && window.EDU_CLOUD) {
+    Cap.cloudAvail = true;
+    try {
+      const c = await window.EDU_CLOUD.ready;
+      if (c?.user) { db = c.db; Object.assign(Cap, { db, uid: c.user.uid, name: c.user.name || '', email: c.user.email || '', cloud: true }); }
+    } catch {}
   }
   if (db && Cap.uid) {
     try {
@@ -557,12 +565,15 @@ async function initStore() {
       const snaps = await Promise.all(KINDS.map(k => base.collection(k).get()));
       KINDS.forEach((k, i) => { const docs = snaps[i].docs.map(d => clone(d.data())); if (k !== 'settings' || docs.length) S[k] = docs; });
       Cap.mode = 'db';
-      base.collection('attempts').onSnapshot(snap => {
-        S.attempts = snap.docs.map(d => clone(d.data()));
-        if (!E && !UI.draft?.dirty && ['reports', 'grade', 'dashboard'].includes(UI.page)) render();
-      }, () => {});
+      if (Cap.cloud) mergeLocal(!snaps[KINDS.indexOf('settings')].docs.length);
+      // live: what another device (or the phone's scanner) saves shows up here
+      KINDS.forEach(k => base.collection(k).onSnapshot(snap => {
+        const docs = snap.docs.map(d => clone(d.data()));
+        if (k === 'settings' && !docs.length) return;
+        S[k] = docs; liveRefresh();
+      }, () => {}));
       return;
-    } catch { base = null; }
+    } catch { base = null; Cap.cloud = false; }
   }
   try {
     const raw = localStorage.getItem(LS);
@@ -590,8 +601,41 @@ function del(kind, id) {
   return chains[k];
 }
 function saveErr(e) {
-  return ({ quota_exceeded: 'Хадгалах багтаамж дүүрсэн байна. Хуучин өгөгдлөө устгана уу.', invalid_argument: 'Энэ хуудсанд өгөгдөл хадгалах эрх танд алга.', resource_exhausted: 'Хэт олон хүсэлт илгээлээ. Түр хүлээгээд дахин оролдоно уу.', revoked: 'Хандах эрх цуцлагдсан байна.' })[e?.code]
+  return ({ quota_exceeded: 'Хадгалах багтаамж дүүрсэн байна. Хуучин өгөгдлөө устгана уу.', invalid_argument: 'Энэ хуудсанд өгөгдөл хадгалах эрх танд алга.', resource_exhausted: 'Хэт олон хүсэлт илгээлээ. Түр хүлээгээд дахин оролдоно уу.', revoked: 'Хандах эрх цуцлагдсан байна.',
+    'permission-denied': 'Өгөгдлийн сангийн дүрэм (Firestore Rules) хадгалахыг хориглож байна. Дүрмээ шалгана уу.', unauthenticated: 'Google бүртгэлээрээ дахин нэвтэрнэ үү.' })[e?.code]
     || 'Хадгалж чадсангүй. Интернэт холболтоо шалгаад дахин оролдоно уу.';
+}
+// re-render after a sync, but never under the teacher's hands (open form, editor, scanner, focused field)
+function liveRefresh() {
+  if (E || LV.on || UI.confirm || UI.draft?.dirty || UI.editStudent || UI.newExam || UI.newClass || UI.editClass || UI.importRows || UI.scanBusy) return;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.type !== 'checkbox') return;
+  if (UI.draft && !UI.draft.dirty) UI.draft = null; // rebuilt from the fresh exam on render
+  clearTimeout(liveRefresh.t); liveRefresh.t = setTimeout(render, 150);
+}
+// first sign-in on a device: add what this device kept locally to the account (once per account, matched by id)
+function mergeLocal(cloudHadNoSettings) {
+  const flag = LS + '-merged-' + Cap.uid;
+  let d = null;
+  try { if (localStorage.getItem(flag)) return; d = JSON.parse(localStorage.getItem(LS) || 'null'); localStorage.setItem(flag, '1'); } catch { return; }
+  if (!d) return;
+  let n = 0;
+  KINDS.forEach(k => (Array.isArray(d[k]) ? d[k] : []).forEach(o => {
+    if (!o || !o.id) return;
+    if (k === 'settings') { if (cloudHadNoSettings) { put(k, o); S.settings = [o]; } return; }
+    if (!S[k].some(x => x.id === o.id)) { put(k, o); n++; }
+  }));
+  if (n) setTimeout(() => toast(`Энэ төхөөрөмж дээрх ${n} бичлэгийг таны бүртгэл рүү нэгтгэлээ`), 800);
+}
+function cloudErr(e) {
+  return ({
+    'auth/popup-closed-by-user': 'Нэвтрэх цонхыг хаасан байна. Дахин оролдоно уу.',
+    'auth/cancelled-popup-request': 'Нэвтрэх цонхыг хаасан байна. Дахин оролдоно уу.',
+    'auth/popup-blocked': 'Хөтөч нэвтрэх цонхыг хаасан байна. Попап цонхыг зөвшөөрөөд дахин оролдоно уу.',
+    'auth/unauthorized-domain': 'Firebase-ийн Authentication → Settings → Authorized domains хэсэгт энэ хаягийг (' + location.hostname + ') нэмээгүй байна.',
+    'auth/operation-not-allowed': 'Firebase-ийн Authentication хэсэгт Google нэвтрэлтийг асаагаагүй байна.',
+    'auth/network-request-failed': 'Интернэт холболтоо шалгаад дахин оролдоно уу.',
+  })[e?.code] || 'Нэвтэрч чадсангүй' + (e?.code ? ' (' + e.code + ')' : '') + '.';
 }
 function saveLocal() {
   if (Cap.mode !== 'local') return;
@@ -1761,7 +1805,7 @@ function renderSide() {
   const cur = PARENT[UI.page] || UI.page;
   const counts = { exams: S.exams.filter(x => x.status !== 'archived').length, classes: S.classes.length, students: S.students.filter(s => s.active !== false).length, archive: S.exams.filter(x => x.status === 'archived').length };
   $('#menu').innerHTML = PAGES.map(([k, l, i]) => `<button class="${cur === k ? 'on' : ''}" data-go="${k}">${ic(i)}<span>${l}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
-  const m = { db: ['Claude бүртгэлд хадгалагдана', 'var(--ok)'], local: ['Зөвхөн энэ хөтөчид (локал)', 'var(--warn)'], memory: ['Түр горим: хадгалагдахгүй', 'var(--bad)'] }[Cap.mode];
+  const m = { db: [Cap.cloud ? 'Google бүртгэлд синк хийгдэнэ' : 'Claude бүртгэлд хадгалагдана', 'var(--ok)'], local: ['Зөвхөн энэ төхөөрөмжид', 'var(--warn)'], memory: ['Түр горим: хадгалагдахгүй', 'var(--bad)'] }[Cap.mode];
   $('#sideFoot').innerHTML = `<span><span class="dot" style="--st:${m[1]}"></span>${m[0]}</span><span><span class="dot" style="--st:${Cap.sample ? 'var(--ok)' : 'var(--bad)'}"></span>AI үнэлгээ: ${Cap.sample ? 'Claude' : 'боломжгүй'}</span>`;
   $('#side').classList.toggle('open', UI.sideOpen); $('#scrim').classList.toggle('open', UI.sideOpen);
 }
@@ -1826,7 +1870,9 @@ function pDashboard() {
   const isNew = !S.exams.length && !S.classes.length;
   return `<div class="spread"><div class="stack" style="gap:2px"><h1>Хянах самбар</h1><p class="muted">${esc(st.school || 'Сайн байна уу')}${Cap.name ? ', ' + esc(Cap.name) : ''}</p></div>
     <div class="row"><button class="btn primary" data-act="newExam">${ic('plus')}Шинэ шалгалт</button><button class="btn" data-go="grade">${ic('scan-line')}Хуудас засах</button><button class="btn" data-go="reports">${ic('chart-column')}Тайлан</button></div></div>
-  ${Cap.mode !== 'db' ? `<div class="notice warn">${ic('triangle-alert')}<span>${Cap.mode === 'local' ? 'Өгөгдөл зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана. Өөр төхөөрөмжөөс харагдахгүй, хөтчийн өгөгдлийг цэвэрлэвэл устна. Тохиргоо хэсгээс нөөц файлаа тогтмол татаж хадгална уу. Claude дахь EduScan-ийн өгөгдлийг «Нөөцөөс сэргээх»-ээр оруулж болно.' : 'Энэ харагдацад өгөгдөл хадгалагдахгүй байна. Хуудсыг хаахад бүх өгөгдөл устна.'}</span></div>` : ''}
+  ${Cap.mode !== 'db' && Cap.cloudAvail ? `<div class="notice">${ic('cloud')}<div class="stack" style="gap:8px"><span>Google бүртгэлээрээ нэвтэрвэл өгөгдөл үүлэнд хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Хоёр төхөөрөмж дээр хоёуланд нь ижил бүртгэлээр нэвтэрнэ үү.</span>
+    <div class="row"><button class="btn primary" data-act="cloudIn">${ic('log-in')}Google-ээр нэвтрэх</button></div></div></div>`
+  : Cap.mode !== 'db' ? `<div class="notice warn">${ic('triangle-alert')}<span>${Cap.mode === 'local' ? 'Өгөгдөл зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана. Өөр төхөөрөмжөөс харагдахгүй, хөтчийн өгөгдлийг цэвэрлэвэл устна. Тохиргоо хэсгээс нөөц файлаа тогтмол татаж хадгална уу. Claude дахь EduScan-ийн өгөгдлийг «Нөөцөөс сэргээх»-ээр оруулж болно.' : 'Энэ харагдацад өгөгдөл хадгалагдахгүй байна. Хуудсыг хаахад бүх өгөгдөл устна.'}</span></div>` : ''}
   <div class="stats">
     <div class="stat">${ic('file-text')}<span class="eyebrow">Шалгалт</span><b>${active.length}</b></div>
     <div class="stat">${ic('school')}<span class="eyebrow">Анги</span><b>${S.classes.length}</b></div>
@@ -2510,7 +2556,11 @@ function pSettings() {
     <p class="small muted">Амжилт: босгоос дээш хувьтай сурагчдын эзлэх хувь. Чанар: чанарын босгоос дээш хувьтай сурагчдын эзлэх хувь. Сургуулийнхаа журмаар тохируулна уу.</p></div>
   <div class="row"><button class="btn primary" data-act="saveSettings">${ic('save')}Тохиргоо хадгалах</button></div>
   <div class="card"><h2>Өгөгдөл хадгалалт</h2>
-    <p>${Cap.mode === 'db' ? `${ic('cloud')} Өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана. Зөвхөн та харна. Утас, компьютер аль алинаас нэвтэрч ашиглана.` : Cap.mode === 'local' ? 'Локал прототип горим: өгөгдөл зөвхөн энэ хөтчид хадгалагдана. Сервертэй синк хийгдэхгүй.' : 'Өгөгдөл хадгалагдахгүй горим.'}</p>
+    <p>${Cap.cloud ? `${ic('cloud')} Өгөгдөл таны Google бүртгэлд${Cap.email ? ' (' + esc(Cap.email) + ')' : ''} хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Зөвхөн та харна. Интернэтгүй үед ч хадгалж, холбогдмогц илгээнэ.`
+      : Cap.mode === 'db' ? `${ic('cloud')} Өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана. Зөвхөн та харна. Утас, компьютер аль алинаас нэвтэрч ашиглана.`
+      : Cap.mode === 'local' ? `Өгөгдөл зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана.${Cap.cloudAvail ? ' Утас, компьютер хоёрыг холбохын тулд хоёулан дээр нь ижил Google бүртгэлээр нэвтэрнэ үү. Энэ төхөөрөмж дээрх өгөгдөл таны бүртгэл рүү автоматаар нэгтгэгдэнэ.' : ' Сервертэй синк хийгдэхгүй.'}` : 'Өгөгдөл хадгалагдахгүй горим.'}</p>
+    ${Cap.cloud ? `<div class="row"><span class="small muted">${ic('user')} ${esc(Cap.name || Cap.email)}</span><button class="btn sm" data-act="cloudOut">${ic('log-out')}Гарах</button></div>`
+      : Cap.cloudAvail ? `<div class="row"><button class="btn primary" data-act="cloudIn">${ic('log-in')}Google-ээр нэвтрэх</button></div>` : ''}
     <p class="small muted">${S.exams.length} шалгалт · ${S.classes.length} анги · ${S.students.length} сурагч · ${S.attempts.length} үр дүн</p>
     <div class="row"><button class="btn" data-act="backup">${ic('download')}Нөөц файл татах (JSON)</button><button class="btn" data-act="restore">${ic('upload')}Нөөцөөс сэргээх</button></div></div>
   <div class="card"><h2>AI үнэлгээ</h2><p>${Cap.sample ? `Задгай даалгаврыг Claude уншиж, шалгуураар оноо санал болгоно${Cap.canImages ? '. Зураг илгээх боломжтой.' : '. Энэ харагдацаас зураг илгээх боломжгүй тул текстээр оруулна.'} Хүсэлт бүр таны Claude хэрэглээнээс зарцуулна. Анх ашиглахад зөвшөөрөл асууна.` : 'Энэ харагдацад AI ашиглах боломжгүй. Оноог гараар оруулна.'}</p></div>`;
@@ -2701,6 +2751,8 @@ const A = {
   },
   backup: () => offerFile(`EduScan нөөц ${todayStr()}.json`, JSON.stringify({ app: 'eduscan', version: 1, at: new Date().toISOString(), data: { classes: S.classes, students: S.students, exams: S.exams, attempts: S.attempts, settings: S.settings } }, null, 1)),
   restore: () => $('#backupFile').click(),
+  cloudIn: async () => { try { await window.EDU_CLOUD.signIn(); location.reload(); } catch (e) { toast(cloudErr(e), true); } },
+  cloudOut: async () => { try { await window.EDU_CLOUD.signOut(); } catch {} location.reload(); },
 };
 function markDirty() {
   if (!UI.draft) return; UI.draft.dirty = true;
