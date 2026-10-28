@@ -1,7 +1,7 @@
 // EduScan service worker: the app opens without internet once it has loaded one time.
 // Own files are fetched fresh when online (so updates and config changes arrive), with the cache as fallback.
 // Libraries and fonts from CDNs come from the cache first. Sign-in and sync traffic is never touched.
-const CACHE = 'eduscan-v2';
+const CACHE = 'eduscan-v3';
 const CORE = ['./', './index.html', './manifest.webmanifest', './firebase-config.js', './cloud.js', './icons/icon-192.png', './icons/icon-512.png'];
 const STATIC_HOSTS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
