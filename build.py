@@ -7,6 +7,7 @@ icons, the service worker and an install button.
 
     python3 build.py            (reads src/eduscan.html)
 """
+import hashlib
 import re
 import sys
 
@@ -43,8 +44,8 @@ img { max-width: 100%; }
   color: #fff; background: linear-gradient(135deg, #4f6bff, #8b5cf6); box-shadow: 0 8px 24px rgba(79,107,255,0.4); cursor: pointer; }
 </style>
 <!-- accounts + sync: must run before the app script, which asks window.EDU_CLOUD at start -->
-<script src="firebase-config.js"></script>
-<script src="cloud.js"></script>
+<script src="firebase-config.js?v=__CFGV__"></script>
+<script src="cloud.js?v=__CLOUDV__"></script>
 '''
 
 TAIL = '''
@@ -67,6 +68,10 @@ document.getElementById('installBtn').addEventListener('click', async () => {
 </body>
 </html>
 '''
+
+# version tags so a changed config or sync script is fetched fresh instead of from the browser cache
+ver = lambda f: hashlib.sha1(open(f, 'rb').read()).hexdigest()[:8]
+HEAD = HEAD.replace('__CFGV__', ver('firebase-config.js')).replace('__CLOUDV__', ver('cloud.js'))
 
 out = HEAD + '\n'.join(head_lines) + '\n</head>\n<body>\n' + body.strip() + '\n' + TAIL
 open('index.html', 'w', encoding='utf8').write(out)

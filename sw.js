@@ -1,7 +1,7 @@
 // EduScan service worker: the app opens without internet once it has loaded one time.
 // Own files are fetched fresh when online (so updates and config changes arrive), with the cache as fallback.
 // Libraries and fonts from CDNs come from the cache first. Sign-in and sync traffic is never touched.
-const CACHE = 'eduscan-v3';
+const CACHE = 'eduscan-v4';
 const CORE = ['./', './index.html', './manifest.webmanifest', './firebase-config.js', './cloud.js', './icons/icon-192.png', './icons/icon-512.png'];
 const STATIC_HOSTS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
@@ -20,9 +20,9 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin === location.origin) {
-    e.respondWith(fetch(req)
+    e.respondWith(fetch(req, { cache: 'no-cache' }) // revalidate with the server, so updates show at once
       .then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; })
-      .catch(() => caches.match(req).then(m => m || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error()))));
+      .catch(() => caches.match(req, { ignoreSearch: true }).then(m => m || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error()))));
     return;
   }
   if (!STATIC_HOSTS.includes(url.hostname)) return; // Firebase, Google sign-in: straight to the network
