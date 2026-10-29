@@ -233,6 +233,10 @@ input:disabled, select:disabled { opacity: 0.6; cursor: not-allowed; }
 .steplist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
 .steplist li { display: flex; gap: 8px; align-items: baseline; }
 .steplist li .mono { flex: none; min-width: 44px; font-weight: 600; }
+.cogmat { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin: 4px 0 10px; border: 1px dashed var(--line); border-radius: 12px; background: var(--sunk); }
+.cogmat textarea { width: 100%; }
+.qlist { margin: 6px 0 0; padding-left: 22px; display: grid; gap: 2px; }
+label.btn.disabled { opacity: 0.6; pointer-events: none; }
 </style>
 <style>
 /* ===== Colorful theme layer: visuals only, no layout or content changes ===== */
@@ -597,7 +601,9 @@ const studentsOf = classId => S.students.filter(s => s.classId === classId).sort
 const attemptsOf = examId => S.attempts.filter(a => a.examId === examId);
 const subjects = () => [...new Set(S.exams.map(x => x.subject).filter(Boolean))].sort();
 // answer-key versions (А, Б, …): ex.key is the first version's key, ex.keys[v] the others'
-const VLAB = ['А', 'Б', 'В', 'Г'];
+const VLAB_SETS = { cyr: ['А', 'Б', 'В', 'Г'], lat: ['A', 'B', 'C', 'D'] };
+// an exam keeps the labels it was made with; a new one takes the teacher's default
+const vlab = d => VLAB_SETS[d?.vlab] || (d?.versions?.length ? (VLAB_SETS.lat.includes(d.versions[0]) ? VLAB_SETS.lat : VLAB_SETS.cyr) : VLAB_SETS[settings().vlab] || VLAB_SETS.cyr);
 const nVer = ex => Math.max(1, (ex.versions || []).length);
 const V0 = ex => (ex.versions || [])[0] || '';
 const keyOf = (ex, v) => (nVer(ex) < 2 || !v || v === V0(ex)) ? ex.key : (ex.keys?.[v] || []);
@@ -970,52 +976,133 @@ const cogQs = l => [l.items.length ? `${compressRange(l.items)}-р асуулт`
 // ---- editor (answer key tab) ----
 function cogCounts(d) { const per = cogItemMap(d), c = cogFw(d).levels.map(l => per.filter(v => v === l.k).length); c.free = per.filter(v => !v).length; return c; }
 const cogFreeText = free => free > 0 ? `${free} асуулт ангилагдаагүй байна.` : 'Бүх сонгох асуулт ангилагдсан.';
-function cogCard(d) {
-  const fw = cogFw(d), cn = cogCounts(d), w = d.written || [], m = UI.cogMsg;
-  const fwSel = Object.keys(COG_FW).length > 1 ? `<label class="field" style="max-width:360px">Ангилал<select data-cogfw>${Object.entries(COG_FW).map(([k, f]) => opt(k, f.name, d.cog?.fw || 'bloom')).join('')}</select></label>` : '';
-  const canAI = !!Cap.sample, busy = UI.cogBusy;
-  return `<div class="card"><div class="spread"><h2>Танин мэдэхүйн түвшин</h2>
-      ${canAI ? `<div class="row">${Cap.canImages ? `<button class="btn" data-act="cogAI" ${busy ? 'disabled' : ''}>${busy ? '<span class="busy"></span>Ангилж байна' : ic('sparkles') + 'Материалын зургаар AI-аар ангилах'}</button>` : ''}
-        ${w.some(t => (t.prompt || '').trim()) ? `<button class="btn" data-act="cogAIw" ${busy ? 'disabled' : ''}>${ic('sparkles')}Задгай даалгаврыг AI-аар</button>` : ''}</div>` : ''}</div>
-    <p class="small muted">${esc(fw.name)} (${esc(fw.en)}). Асуулт бүр сурагчаас ямар түвшний сэтгэлгээ шаардахыг тэмдэглэвэл тайланд түвшин тус бүрийн гүйцэтгэл, доод ба дээд эрэмбийн сэтгэлгээний харьцаа, түүнд тулгуурласан зөвлөмж гарна. Асуултын дугаарыг «1-5, 9» гэх мэтээр бичнэ. Заавал биш.${canAI && Cap.canImages ? ' Шалгалтын материалын (асуултын хуудасны) зургийг сонговол Claude асуулт бүрийн түвшинг санал болгоно, та шалгаж засна.' : ''}</p>
-    ${fwSel}
-    <div class="cogrid">${fw.levels.map((l, j) => `<label class="cogrow"><span class="cogname"><b>${esc(l.mn)}</b> <span class="small muted">${esc(l.en)}${l.hi ? ' · дээд эрэмбэ' : ''}</span><span class="small muted cogverbs">${esc(l.verbs)}</span></span>
-      <input type="text" data-cg="${l.k}" value="${esc(d.cog?.ranges?.[l.k] || '')}" placeholder="ж: 1-5, 9" aria-label="${esc(l.mn)} түвшний асуултууд"><span class="small muted" data-cgc="${l.k}">${cn[j]} асуулт</span></label>`).join('')}</div>
-    ${w.length ? `<div class="stack" style="gap:6px;margin-top:10px"><span class="eyebrow">Задгай даалгавар</span>${w.map((t, i) => `<label class="row"><span style="min-width:110px">Даалгавар ${i + 1}</span><select data-cgw="${i}" style="flex:1 1 220px" aria-label="${i + 1}-р задгай даалгаврын түвшин">${opt('', '— Түвшин сонгох —', t.cog || '')}${fw.levels.map(l => opt(l.k, `${l.mn} (${l.en})`, t.cog || '')).join('')}</select></label>`).join('')}</div>` : ''}
-    <p class="small muted" data-cgc="free">${cogFreeText(cn.free)}</p>
-    ${m ? `<p class="notice ${m.bad ? 'bad' : m.busy ? '' : 'ok'}">${m.busy ? '<span class="busy"></span>' : ic(m.bad ? 'triangle-alert' : 'sparkles')}<span>${esc(m.text)}</span></p>` : ''}
-    <input type="file" id="cogFiles" accept="image/*" multiple hidden></div>`;
-}
 function cogSetRange(d, k, v) {
   d.cog = { fw: d.cog?.fw || 'bloom', ranges: { ...(d.cog?.ranges || {}), [k]: v } };
   const cn = cogCounts(d); cogFw(d).levels.forEach((l, j) => { const el = $(`[data-cgc="${l.k}"]`); if (el) el.textContent = cn[j] + ' асуулт'; });
   const fr = $('[data-cgc="free"]'); if (fr) fr.textContent = cogFreeText(cn.free);
 }
-async function aiCog(files) {
+function cogCard(d) {
+  const fw = cogFw(d), cn = cogCounts(d), w = d.written || [], m = UI.cogMsg;
+  const fwSel = Object.keys(COG_FW).length > 1 ? `<label class="field" style="max-width:360px">Ангилал<select data-cogfw>${Object.entries(COG_FW).map(([k, f]) => opt(k, f.name, d.cog?.fw || 'bloom')).join('')}</select></label>` : '';
+  const canAI = !!Cap.sample, busy = UI.cogBusy;
+  const accept = Cap.canImages ? 'image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt' : '.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt';
+  return `<div class="card"><h2>Танин мэдэхүйн түвшин</h2>
+    <p class="small muted">${esc(fw.name)} (${esc(fw.en)}). Асуулт бүр сурагчаас ямар түвшний сэтгэлгээ шаардахыг тэмдэглэвэл тайланд түвшин тус бүрийн гүйцэтгэл, доод ба дээд эрэмбийн сэтгэлгээний харьцаа, түүнд тулгуурласан зөвлөмж гарна. Заавал биш.</p>
+    ${canAI ? `<div class="cogmat"><div class="stack" style="gap:4px"><b>${ic('sparkles')} AI-аар автоматаар ангилах</b>
+        <span class="small muted">Шалгалтын материалаа (Word, PDF${Cap.canImages ? ', зураг' : ''}) оруулах эсвэл асуултуудын текстийг буулгахад Claude асуулт бүрийн түвшинг тодорхойлж, доорх хүснэгтийг бөглөнө. Та шалгаж засаад «Хадгалах» дарна. Задгай даалгаврын түвшинг шалгалтыг хадгалахад AI өөрөө тогтооно.</span></div>
+      <div class="row"><label class="btn primary ${busy ? 'disabled' : ''}">${busy ? '<span class="busy"></span>Ангилж байна' : ic('file-up') + 'Материал оруулах'}<input type="file" id="cogFiles" accept="${accept}" multiple class="hidden-input" ${busy ? 'disabled' : ''}></label>
+        <button class="btn" data-act="cogPaste" ${busy ? 'disabled' : ''}>${ic('clipboard-paste')}Текст буулгах</button>
+        ${w.some(t => (t.prompt || '').trim()) ? `<button class="btn" data-act="cogAIw" ${busy ? 'disabled' : ''}>${ic('pen-line')}Задгай даалгаврыг ангилах</button>` : ''}</div>
+      ${UI.cogPaste ? `<textarea id="cogText" rows="7" placeholder="Шалгалтын асуултуудыг энд хуулж буулгана уу. Жишээ нь:&#10;1. Натрийн атомын цөмд хэдэн протон байдаг вэ? A) 10 B) 11 C) 12 D) 23&#10;2. …"></textarea>
+        <div class="row"><button class="btn primary" data-act="cogText" ${busy ? 'disabled' : ''}>${ic('sparkles')}AI-аар ангилах</button><button class="btn" data-act="cogPasteClose">Болих</button></div>` : ''}
+      ${m ? `<p class="notice ${m.bad ? 'bad' : m.busy ? '' : 'ok'}">${m.busy ? '<span class="busy"></span>' : ic(m.bad ? 'triangle-alert' : 'sparkles')}<span>${esc(m.text)}</span></p>` : ''}</div>` : ''}
+    ${fwSel}
+    <p class="small muted">Гараар засах бол асуултын дугаарыг «1-5, 9» гэх мэтээр бичнэ.</p>
+    <div class="cogrid">${fw.levels.map((l, j) => `<label class="cogrow"><span class="cogname"><b>${esc(l.mn)}</b> <span class="small muted">${esc(l.en)}${l.hi ? ' · дээд эрэмбэ' : ''}</span><span class="small muted cogverbs">${esc(l.verbs)}</span></span>
+      <input type="text" data-cg="${l.k}" value="${esc(d.cog?.ranges?.[l.k] || '')}" placeholder="ж: 1-5, 9" aria-label="${esc(l.mn)} түвшний асуултууд"><span class="small muted" data-cgc="${l.k}">${cn[j]} асуулт</span></label>`).join('')}</div>
+    ${w.length ? `<div class="stack" style="gap:6px;margin-top:10px"><span class="eyebrow">Задгай даалгавар</span>${w.map((t, i) => `<label class="row"><span style="min-width:110px">Даалгавар ${i + 1}</span><select data-cgw="${i}" style="flex:1 1 220px" aria-label="${i + 1}-р задгай даалгаврын түвшин">${opt('', '— Түвшин сонгох —', t.cog || '')}${fw.levels.map(l => opt(l.k, `${l.mn} (${l.en})`, t.cog || '')).join('')}</select></label>`).join('')}</div>` : ''}
+    <p class="small muted" data-cgc="free">${cogFreeText(cn.free)}</p>
+    ${(d.qtext || []).some(Boolean) ? `<details><summary class="small muted">AI-ийн уншсан асуултууд (${(d.qtext || []).filter(Boolean).length})</summary><ol class="small qlist">${Array.from({ length: d.count }, (_, i) => `<li>${esc(d.qtext[i] || '—')}</li>`).join('')}</ol></details>` : ''}</div>`;
+}
+// ---- the teacher's exam file -> text and page images for Claude ----
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+async function loadPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((res, rej) => { const s = document.createElement('script'); s.src = PDFJS + 'pdf.min.js'; s.onload = res; s.onerror = () => rej(aiFail('pdf_lib')); document.head.appendChild(s); });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js';
+  return window.pdfjsLib;
+}
+async function pdfRead(f) {
+  const lib = await loadPdfJs();
+  const doc = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise;
+  const n = Math.min(doc.numPages, 20); let text = '';
+  for (let p = 1; p <= n; p++) { const tc = await (await doc.getPage(p)).getTextContent(); text += tc.items.map(it => it.str + (it.hasEOL ? '\n' : ' ')).join('') + '\n\n'; }
+  const imgs = [];
+  // a scanned paper has (almost) no text layer: send pictures of its pages instead
+  if (text.replace(/\s/g, '').length < 60 * n && Cap.canImages) {
+    for (let p = 1; p <= Math.min(n, Math.max(1, Cap.maxImages || 1)); p++) {
+      const pg = await doc.getPage(p), vp = pg.getViewport({ scale: 1.6 }), c = document.createElement('canvas');
+      c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; imgs.push(await toBlob(c, 'image/jpeg', 0.85));
+    }
+    text = '';
+  }
+  return { text: text.trim(), imgs };
+}
+async function docxText(f) {
+  if (!window.XLSX?.CFB) throw aiFail('doc_unreadable');
+  const z = XLSX.CFB.read(new Uint8Array(await f.arrayBuffer()), { type: 'array' });
+  const e = XLSX.CFB.find(z, 'word/document.xml') || XLSX.CFB.find(z, '/word/document.xml');
+  if (!e?.content) throw aiFail('doc_unreadable');
+  const xml = new TextDecoder().decode(e.content instanceof Uint8Array ? e.content : new Uint8Array(e.content));
+  const dec = s => s.replace(/<w:tab\/>/g, '\t').replace(/<w:br[^>]*\/>/g, '\n').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  // automatically numbered paragraphs keep no number in the text: mark them so Claude can count the questions
+  return xml.split(/<\/w:p>/).map(p => { const t = dec(p).trim(); return t ? (/<w:numPr>/.test(p) ? '# ' : '') + t : ''; }).filter(Boolean).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+async function readMaterial(files) {
+  const imgs = [], texts = [];
+  for (const f of files) {
+    const name = (f.name || '').toLowerCase();
+    if ((f.type || '').startsWith('image/')) { if (Cap.canImages) imgs.push(f); }
+    else if (name.endsWith('.docx')) texts.push(await docxText(f));
+    else if (name.endsWith('.pdf') || f.type === 'application/pdf') { const r = await pdfRead(f); if (r.text) texts.push(r.text); imgs.push(...r.imgs); }
+    else if (name.endsWith('.txt') || (f.type || '').startsWith('text/')) texts.push(await f.text());
+    else if (name.endsWith('.doc')) throw aiFail('doc_old');
+  }
+  return { imgs, text: texts.join('\n\n').trim() };
+}
+// Claude classifies every question it can read (and notes what each asks); the teacher checks and saves
+async function aiCog(files, pasted) {
   const d = UI.draft?.data; if (!d || !Cap.sample || UI.cogBusy) return;
-  const fw = cogFw(d), imgs = [...(files || [])].slice(0, Math.max(1, Cap.maxImages || 1));
-  if ((files || []).length > imgs.length) toast(`Эхний ${imgs.length} зургийг илгээнэ.`);
+  const fw = cogFw(d);
   const written = (d.written || []).map((w, i) => ({ n: i + 1, task: w.prompt || '' })).filter(x => x.task.trim());
-  if (!imgs.length && !written.length) return;
-  UI.cogBusy = true; UI.cogMsg = { busy: true, text: imgs.length ? 'Claude шалгалтын материалыг уншиж, асуулт бүрийн түвшинг тодорхойлж байна…' : 'Claude задгай даалгаврын түвшинг тодорхойлж байна…' }; render();
-  const levelsTxt = fw.levels.map(l => `${l.k} = ${l.mn} / ${l.en} (${l.verbs})`).join('; ');
-  const prompt = `You help a Mongolian school teacher classify exam tasks by cognitive level using ${fw.en}. Levels: ${levelsTxt}.
-${imgs.length ? `The images show the exam paper${d.subject ? ` (subject: ${d.subject})` : ''}. Part I has ${d.count} multiple-choice questions numbered 1 to ${d.count}; classify each one you can read and skip the ones you cannot read.` : `Classify only the written tasks below${d.subject ? ` (subject: ${d.subject})` : ''}.`}
+  UI.cogBusy = true; UI.cogMsg = { busy: true, text: (files || []).length ? 'Материалыг уншиж байна…' : 'Claude асуултуудын түвшинг тодорхойлж байна…' }; render();
+  try {
+    const mat = (files || []).length ? await readMaterial(files) : { imgs: [], text: '' };
+    const text = [mat.text, String(pasted || '').trim()].filter(Boolean).join('\n\n').slice(0, 40000);
+    const imgs = mat.imgs.slice(0, Math.max(1, Cap.maxImages || 1));
+    if (!text && !imgs.length && !written.length) { UI.cogMsg = { bad: true, text: 'Файлаас асуулт уншиж чадсангүй. Өөр файл эсвэл текст оруулна уу.' }; UI.cogBusy = false; render(); return; }
+    if (mat.imgs.length > imgs.length) toast(`Эхний ${imgs.length} хуудсыг илгээнэ.`);
+    UI.cogMsg = { busy: true, text: 'Claude асуулт бүрийн түвшинг тодорхойлж байна…' }; render();
+    const hasMat = !!(text || imgs.length);
+    const levelsTxt = fw.levels.map(l => `${l.k} = ${l.mn} / ${l.en} (${l.verbs})`).join('; ');
+    const prompt = `You help a Mongolian school teacher classify exam tasks by cognitive level using ${fw.en}. Levels: ${levelsTxt}.
+${hasMat ? `${text ? 'The exam text taken from the teacher\'s file is at the end (lines starting with "# " were automatically numbered in the file, so their numbers are missing: count the questions in order).' : ''}${imgs.length ? ' The images show the exam paper.' : ''} Part I has ${d.count} multiple-choice questions numbered 1 to ${d.count}${d.subject ? ` (subject: ${d.subject})` : ''}. Classify each one you can identify and skip the others; for each also give "q": what the question asks, at most 120 characters, in the paper's language.` : `Classify only the written tasks below${d.subject ? ` (subject: ${d.subject})` : ''}.`}
 ${written.length ? `Written tasks (part II), texts in JSON: ${JSON.stringify(written)}` : ''}
 Choose the single level that matches the mental process the student must use to answer, not the topic or how hard it is: recalling a fact, term or formula is remember; explaining, classifying, comparing or interpreting is understand; using a known procedure or formula in a familiar task is apply; breaking down data, graphs, experiments or relationships is analyze; judging or justifying with criteria or evidence is evaluate; designing, planning or producing something new is create.
-Reply with only JSON: {"items":[{"n":1,"level":"remember"}],"written":[{"n":1,"level":"apply"}],"note":"one short sentence in Mongolian about the balance of levels"}`;
-  try {
+Reply with only JSON: {"items":[{"n":1,"level":"remember","q":"..."}],"written":[{"n":1,"level":"apply"}],"note":"one short sentence in Mongolian about the balance of levels"}${text ? `\nExam text:\n"""\n${text}\n"""` : ''}`;
     const out = await Cap.sample.json(prompt, imgs.length ? { images: imgs } : {});
     if (UI.draft?.data !== d) { UI.cogBusy = false; return; }
-    const per = cogItemMap(d); let k = 0, kw = 0;
-    (out?.items || []).forEach(x => { const i = (+x.n || 0) - 1; if (i >= 0 && i < d.count && cogLv(d, x.level)) { per[i] = x.level; k++; } });
+    const per = cogItemMap(d), qt = Array.from({ length: d.count }, (_, i) => (d.qtext || [])[i] || ''); let k = 0, kw = 0;
+    (out?.items || []).forEach(x => { const i = (+x.n || 0) - 1; if (i < 0 || i >= d.count) return; if (cogLv(d, x.level)) { per[i] = x.level; k++; } if (x.q) qt[i] = String(x.q).slice(0, 200); });
     (out?.written || []).forEach(x => { const i = (+x.n || 0) - 1; if (d.written?.[i] && cogLv(d, x.level)) { d.written[i].cog = x.level; kw++; } });
     const ranges = {}; fw.levels.forEach(l => { const r = compressRange(per.map((v, i) => v === l.k ? i : -1).filter(i => i >= 0)); if (r) ranges[l.k] = r; });
-    d.cog = { fw: d.cog?.fw || 'bloom', ranges }; markDirty();
-    UI.cogMsg = k || kw ? { text: `Claude ${[k ? k + ' асуулт' : '', kw ? kw + ' задгай даалгавар' : ''].filter(Boolean).join(', ')} ангиллаа.${out?.note ? ' ' + String(out.note) : ''} Шалгаж, шаардлагатай бол засаад «Хадгалах» дарна уу.${aiCostNote()}` }
-      : { bad: true, text: 'Claude асуулт уншиж чадсангүй. Илүү тод, бүтэн зураг сонгоно уу.' };
-  } catch (e) { UI.cogMsg = { bad: true, text: aiErr(e) }; }
+    d.cog = { fw: d.cog?.fw || 'bloom', ranges }; if (qt.some(Boolean)) d.qtext = qt; markDirty();
+    UI.cogPaste = false;
+    UI.cogMsg = k || kw ? { text: `Claude ${[k ? k + ' асуулт' : '', kw ? kw + ' задгай даалгавар' : ''].filter(Boolean).join(', ')} ангиллаа.${k && hasMat && k < d.count ? ` ${d.count - k} асуултыг уншиж чадсангүй: гараар нөхнө үү.` : ''}${out?.note ? ' ' + String(out.note) : ''} Шалгаж, шаардлагатай бол засаад «Хадгалах» дарна уу.${aiCostNote()}` }
+      : { bad: true, text: 'Claude асуулт уншиж чадсангүй. Илүү тод зураг эсвэл текстээр нь оруулна уу.' };
+  } catch (e) {
+    UI.cogMsg = { bad: true, text: ({ doc_unreadable: 'Word файлыг уншиж чадсангүй. PDF болгож эсвэл текстээр нь оруулна уу.', doc_old: 'Хуучин .doc файлыг уншихгүй. Word-оос .docx эсвэл PDF болгож хадгалаад оруулна уу.', pdf_lib: 'PDF уншигч ачаалагдсангүй. Интернэтээ шалгана уу.' })[e?.code] || aiErr(e) };
+  }
   UI.cogBusy = false; render();
+}
+// after an exam is saved: written tasks without a level get one from Claude (text only, a fraction of a cent)
+const cogAutoRun = new Set();
+async function autoCogWritten(exId) {
+  const ex = exam(exId); if (!ex || !Cap.sample || cogAutoRun.has(exId)) return;
+  const idx = (ex.written || []).map((w, i) => i).filter(i => String(ex.written[i].prompt || '').trim() && !cogLv(ex, ex.written[i].cog));
+  if (!idx.length) return;
+  cogAutoRun.add(exId);
+  try {
+    const fw = cogFw(ex);
+    const prompt = `Classify these written exam tasks (Mongolian school${ex.subject ? ', subject: ' + ex.subject : ''}) by ${fw.en}. Levels: ${fw.levels.map(l => `${l.k} = ${l.mn} (${l.verbs})`).join('; ')}. Choose the mental process the student must use, not the topic or difficulty.
+Tasks (JSON): ${JSON.stringify(idx.map(i => ({ n: i + 1, task: ex.written[i].prompt })))}
+Reply with only JSON: {"written":[{"n":1,"level":"apply"}]}`;
+    const out = await Cap.sample.json(prompt);
+    const x = clone(exam(exId)); let k = 0;
+    (out?.written || []).forEach(t => { const i = (+t.n || 0) - 1; if (idx.includes(i) && x.written[i] && !cogLv(x, x.written[i].cog) && cogLv(x, t.level)) { x.written[i].cog = t.level; k++; } });
+    if (k) { await put('exams', x); toast(`AI ${k} задгай даалгаврын танин мэдэхүйн түвшинг тогтоолоо.`); if (UI.page === 'exam' && !UI.draft?.dirty) render(); }
+  } catch {} finally { cogAutoRun.delete(exId); }
 }
 
 // ---- report: overview card, advice, comments ----
@@ -2289,17 +2376,18 @@ async function genGuide(src, v, idx) {
 For each task: when "criteria" is given, keep those criteria and points exactly; otherwise turn the rubric (or, when it is empty, the task itself) into 2-6 observable criteria whose points add up to maxPoints exactly (steps of 0.5).
 For every criterion write, in Mongolian, what earns its full points, when partial points are allowed and how many, what earns zero, and which equivalent answers are accepted (other wording, notation, units, order). Be concise and concrete; do not change what the task asks.
 Tasks (JSON): ${JSON.stringify(tasks)}
-Reply with only JSON: {"tasks":[{"n":1,"criteria":[{"text":"","points":1}],"guide":"1) <criterion> — бүтэн оноо: …; хэсэгчилсэн: …; 0 оноо: …; зөвшөөрөх хувилбар: …\\n2) …"}]}`;
+Also give "level": the task's level in Bloom's revised taxonomy (remember, understand, apply, analyze, evaluate, create), by the mental process the student must use.
+Reply with only JSON: {"tasks":[{"n":1,"level":"apply","criteria":[{"text":"","points":1}],"guide":"1) <criterion> — бүтэн оноо: …; хэсэгчилсэн: …; 0 оноо: …; зөвшөөрөх хувилбар: …\\n2) …"}]}`;
   const out = await Cap.sample.json(prompt);
   return (out?.tasks || []).map(t => {
     const i = (+t.n || 0) - 1; if (!idx.includes(i)) return null;
     const max = +src.written[i].max || 0;
     let crit = (t.criteria || []).map(c => ({ t: String(c.text || '').trim().slice(0, 200), p: r05(c.points) })).filter(c => c.t && c.p > 0);
     if (Math.abs(crit.reduce((a, c) => a + c.p, 0) - max) >= 0.01) crit = [];
-    return { i, guide: String(t.guide || '').trim().slice(0, 3000), crit };
+    return { i, guide: String(t.guide || '').trim().slice(0, 3000), crit, level: String(t.level || '') };
   }).filter(r => r && r.guide);
 }
-function applyGuide(d, v, res) { res.forEach(r => { setOwn(d, r.i, v, 'guide', r.guide); setOwn(d, r.i, v, 'crit', r.crit); setOwn(d, r.i, v, 'gsig', wSig(d, r.i, v)); }); }
+function applyGuide(d, v, res) { res.forEach(r => { if (!cogLv(d, d.written[r.i].cog) && cogLv(d, r.level)) d.written[r.i].cog = r.level; setOwn(d, r.i, v, 'guide', r.guide); setOwn(d, r.i, v, 'crit', r.crit); setOwn(d, r.i, v, 'gsig', wSig(d, r.i, v)); }); }
 const guideJobs = new Map(), guideTried = new Set();
 async function ensureGuide(ex, v) {
   if (!Cap.sample || !ex) return ex;
@@ -3234,7 +3322,8 @@ function newExamForm() {
       <label class="field">Сонголтын тоо<select id="nxChoices">${[2, 3, 4, 5].map(v => opt(v, v + ' (' + LET.slice(0, v).split('').join('') + ')', st.defChoices)).join('')}</select></label>
       <label class="field">Нэг асуултын оноо<input type="number" id="nxPts" min="0.5" step="0.5" value="${st.defPoints}"></label>
       <label class="field">Задгай даалгавар (0–${MAX_WR})<input type="number" id="nxWr" min="0" max="${MAX_WR}" value="0"></label>
-      <label class="field">Хувилбарын тоо<select id="nxVer">${[1, 2, 3, 4].map(v => opt(v, v === 1 ? '1 (хувилбаргүй)' : v + ' (' + VLAB.slice(0, v).join(', ') + ')', 1)).join('')}</select></label>
+      <label class="field">Хувилбарын тоо<select id="nxVer">${[1, 2, 3, 4].map(v => opt(v, v === 1 ? '1 (хувилбаргүй)' : v + ' хувилбар', 1)).join('')}</select></label>
+      <label class="field">Хувилбарын тэмдэглэгээ<select id="nxVlab">${opt('cyr', 'А, Б, В, Г', settings().vlab || 'cyr')}${opt('lat', 'A, B, C, D', settings().vlab || 'cyr')}</select></label>
     </div>
     <div class="row"><button class="btn primary" data-act="createExam">Үүсгэх</button><button class="btn" data-act="newExamClose">Болих</button></div></div>`;
 }
@@ -3286,7 +3375,8 @@ function tabKey(d, ex) {
     <label class="field">Сонголтын тоо<select data-d="choices">${[2, 3, 4, 5].map(v => opt(v, v + ' (' + LET.slice(0, v).split('').join('') + ')', ch)).join('')}</select></label>
     <label class="field">Нэг асуултын оноо<input type="number" data-d="pointsEach" min="0.5" step="0.5" value="${d.pointsEach}"></label>
     <label class="field">Буруу хариултын торгууль<input type="number" data-d="penalty" min="0" step="0.25" value="${d.penalty || 0}"></label>
-    <label class="field">Хувилбарын тоо<select data-d="nver">${[1, 2, 3, 4].map(v => opt(v, v === 1 ? '1 (хувилбаргүй)' : v + ' (' + VLAB.slice(0, v).join(', ') + ')', nVer(d))).join('')}</select></label>
+    <label class="field">Хувилбарын тоо<select data-d="nver">${[1, 2, 3, 4].map(v => opt(v, v === 1 ? '1 (хувилбаргүй)' : v + ' (' + vlab(d).slice(0, v).join(', ') + ')', nVer(d))).join('')}</select></label>
+    ${nVer(d) > 1 ? `<label class="field">Хувилбарын тэмдэглэгээ<select data-d="vlab" ${attemptsOf(d.id).length ? 'disabled title="Үр дүн хадгалагдсан тул солих боломжгүй"' : ''}>${opt('cyr', 'А, Б, В, Г', vlab(d) === VLAB_SETS.lat ? 'lat' : 'cyr')}${opt('lat', 'A, B, C, D', vlab(d) === VLAB_SETS.lat ? 'lat' : 'cyr')}</select></label>` : ''}
   </div>
   <p class="small muted">Нийт боломжит оноо: <b class="mono">${fmt(mcMax)}</b> (сонгох)${wMax ? ` + <b class="mono">${fmt(wMax)}</b> (задгай) = <b class="mono">${fmt(mcMax + wMax)}</b>` : ''}. Торгууль анхдагчаар 0 буюу идэвхгүй.</p></div>
   <div class="card">
@@ -3338,7 +3428,14 @@ function normalizeKey(d) {
   d.count = Math.min(MAX_Q, Math.max(1, parseInt(d.count, 10) || 1));
   d.choices = Math.min(5, Math.max(2, +d.choices || 4));
   const nk = arr => Array.from({ length: d.count }, (_, i) => { const k = (arr || [])[i] || ''; return LET.indexOf(k) > -1 && LET.indexOf(k) < d.choices ? k : ''; });
-  d.versions = (d.versions || []).length > 1 ? VLAB.slice(0, Math.min(4, d.versions.length)) : [];
+  const oldV = (d.versions || []).slice(), nv = oldV.length > 1 ? Math.min(4, oldV.length) : 0;
+  d.versions = nv ? vlab(d).slice(0, nv) : [];
+  if (nv && oldV.join() !== d.versions.join()) { // labels switched (А Б В Г <-> A B C D): carry keys and texts over by position
+    const mp = {}; oldV.forEach((v, k) => { mp[v] = d.versions[k]; });
+    const ok = {}; Object.entries(d.keys || {}).forEach(([v, a]) => { if (mp[v]) ok[mp[v]] = a; }); d.keys = ok;
+    (d.written || []).forEach(w => { if (w.v) { const o = {}; Object.entries(w.v).forEach(([v, x]) => { if (mp[v]) o[mp[v]] = x; }); w.v = o; } });
+  }
+  if (nv) d.vlab = VLAB_SETS.lat.includes(d.versions[0]) ? 'lat' : 'cyr';
   d.key = nk(d.key);
   const keys = {}; d.versions.slice(1).forEach(v => { keys[v] = nk(d.keys?.[v]); }); d.keys = keys;
   (d.written || []).forEach(w => {
@@ -3348,6 +3445,7 @@ function normalizeKey(d) {
   d.points = Array.from({ length: d.count }, (_, i) => { const v = d.points?.[i]; return v === '' || v == null || isNaN(v) ? null : Math.max(0, +v); });
   d.pointsEach = Math.max(0.5, +d.pointsEach || 1);
   d.penalty = Math.max(0, +d.penalty || 0);
+  if (Array.isArray(d.qtext)) { d.qtext = Array.from({ length: d.count }, (_, i) => String(d.qtext[i] || '').slice(0, 200)); if (!d.qtext.some(Boolean)) delete d.qtext; }
   d.topics = (d.topics || []).map(t => ({ name: String(t?.name || '').trim(), range: String(t?.range || '').trim(), goal: String(t?.goal || '').trim() })).filter(t => t.name || t.range);
   const cfw = COG_FW[d.cog?.fw] ? d.cog.fw : 'bloom', cr = {};
   COG_FW[cfw].levels.forEach(l => { const v = String(d.cog?.ranges?.[l.k] || '').trim(); if (v) cr[l.k] = v; });
@@ -3385,6 +3483,7 @@ function saveDraft(opts = {}) {
   if (scoring) out.keyVersion = (ex.keyVersion || 1) + 1;
   put('exams', out);
   if (scoring && opts.recalc) recalc(out);
+  setTimeout(() => autoCogWritten(out.id), 300);
   UI.draft = null; toast(scoring && opts.recalc ? `Хадгалж, ${n} үр дүнг дахин тооцлоо` : 'Хадгаллаа'); render();
 }
 function recalc(ex) {
@@ -3789,12 +3888,12 @@ async function aiAdvice(ex) {
     thresholds: { successPct: st.thrSuccess, qualityPct: st.thrQuality, topicSupportPct: thrSupport() },
     summary: { meanPct: r1(R.mean), medianPct: r1(R.median), sd: r1(R.sd), successPct: r1(R.success), qualityPct: r1(R.quality), levels: { extending: R.lv.ext, secure: R.lv.sec, needsSupport: R.lv.sup }, alpha: R.alpha == null ? null : Math.round(R.alpha * 100) / 100 },
     topics: R.parts.map((p, j) => ({ name: p.name, learningGoal: p.goal || '', questions: p.items.map(i => i + 1), writtenTasks: p.written.map(w => w + 1), meanPct: r1(R.partPct[j]) })),
-    items: R.items.filter(it => it.keyed).map(it => ({ n: it.n, topic: it.part, key: it.mixed ? null : it.key, correctPct: Math.round(it.p * 100), discrimination: it.D == null ? null : Math.round(it.D * 100) / 100, choices: it.mixed ? null : it.dist, level: it.cog ? cogLv(ex, it.cog)?.en : undefined })),
+    items: R.items.filter(it => it.keyed).map(it => ({ n: it.n, topic: it.part, key: it.mixed ? null : it.key, correctPct: Math.round(it.p * 100), discrimination: it.D == null ? null : Math.round(it.D * 100) / 100, choices: it.mixed ? null : it.dist, level: it.cog ? cogLv(ex, it.cog)?.en : undefined, text: ex.qtext?.[it.i] || undefined })),
     writtenTasks: R.written.map((w, i) => ({ n: w.n, task: w.prompt, rubric: wText(ex, i, V0(ex), 'rubric'), maxPoints: w.max, meanPct: r1(w.pct), zeroScores: w.zero })),
     classes: R.classes.length > 1 ? R.classes.map(c => ({ name: c.name, students: c.n, meanPct: r1(c.mean), topicPct: c.partPct.map(r1) })) : undefined,
     cognitiveLevels: cogData(R),
   };
-  const prompt = `You advise a Mongolian school teacher (subject: ${ex.subject || 'unspecified'}) after an exam. Below is the anonymised result data (JSON). The only information about question content is the topic names, learning goals and written-task texts; do not invent the content of multiple-choice questions, phrase advice at the topic level where needed.
+  const prompt = `You advise a Mongolian school teacher (subject: ${ex.subject || 'unspecified'}) after an exam. Below is the anonymised result data (JSON). Information about question content: topic names, learning goals, written-task texts and, for some multiple-choice items, a short "text"; do not invent the content of items without "text", phrase advice at the topic level where needed.
 Data: ${JSON.stringify(data)}
 Write in formal Mongolian, concrete and practical, based only on the data:
 - "summary": 2-3 sentences on the class result.
@@ -4179,6 +4278,7 @@ function pReports() {
         <td class="num">${Math.round(it.p * 100)}%</td><td><div class="bar"><i class="${it.p < 0.5 ? 'lo' : ''}" style="width:${it.p * 100}%"></i></div></td><td class="small">${diffLabel(it.p)}</td>
         <td class="num">${fmt2(it.D)}</td><td class="num">${fmt2(it.r)}</td><td>${it.q === 'few' ? '<span class="muted small">—</span>' : `<span class="pill ${IQ[it.q][1]}">${IQ[it.q][0]}</span>`}</td>
         <td class="dist">${it.mixed ? Object.entries(it.dist).filter(([o]) => o !== '–').map(([o, c]) => `<span>${o}:${c}</span>`).join('') : LET.slice(0, ex.choices).split('').map(L => `<span class="${L === it.key ? 'k' : it.badDistr.includes(L) ? 'bd' : ''}" title="${L}: нийт ${it.dist[L] || 0} · дээд бүлэг ${it.du[L] || 0} · доод бүлэг ${it.dl[L] || 0}">${L}:${it.dist[L] || 0}</span>`).join('')}${it.dist['*'] ? `<span title="Олон хариулт бөглөсөн">олон:${it.dist['*']}</span>` : ''}${it.dist['–'] ? `<span title="Хариулаагүй">–:${it.dist['–']}</span>` : ''}</td></tr>
+        ${ex.qtext?.[it.i] || it.cog ? `<tr class="tiprow"><td></td><td colspan="${showPart ? 9 : 8}" class="small muted">${it.cog ? `<span class="pill acc">${esc(cogLv(ex, it.cog)?.mn || '')}</span> ` : ''}${esc(ex.qtext?.[it.i] || '')}</td></tr>` : ''}
         ${it.q !== 'good' && it.q !== 'fair' && it.tip ? `<tr class="tiprow"><td></td><td colspan="${showPart ? 9 : 8}"><span class="tip ${IQ[it.q]?.[1] || ''}">${ic('lightbulb')}${esc(it.tip)}</span></td></tr>` : ''}`).join('')}
     </tbody></table></div>
     ${R.written.length ? `<h2>Задгай даалгавар</h2><div class="tablebox"><table><thead><tr><th>Даалгавар</th><th class="num">Дээд оноо</th><th class="num">Дундаж оноо</th><th class="num">Гүйцэтгэл</th><th></th><th class="num">0 оноо</th><th class="num">Бүтэн оноо</th><th class="num">Үнэлээгүй</th></tr></thead><tbody>
@@ -4491,7 +4591,8 @@ function pSettings() {
     <label class="field">Сургуулийн нэр<input type="text" id="stSchool" value="${esc(st.school)}" placeholder="ж: 1-р сургууль"></label>
     <label class="field">Багшийн нэр<input type="text" id="stTeacher" value="${esc(st.teacher || Cap.name)}"></label>
     <label class="field">Анхдагч нэг асуултын оноо<input type="number" id="stPts" min="0.5" step="0.5" value="${st.defPoints}"></label>
-    <label class="field">Анхдагч сонголтын тоо<select id="stCh">${[2, 3, 4, 5].map(v => opt(v, v, st.defChoices)).join('')}</select></label></div></div>
+    <label class="field">Анхдагч сонголтын тоо<select id="stCh">${[2, 3, 4, 5].map(v => opt(v, v, st.defChoices)).join('')}</select></label>
+    <label class="field">Хувилбарын тэмдэглэгээ<select id="stVlab">${opt('cyr', 'А, Б, В, Г', st.vlab || 'cyr')}${opt('lat', 'A, B, C, D', st.vlab || 'cyr')}</select></label></div></div>
   <div class="card"><h2>Үнэлгээний босго</h2><div class="fields">
     <label class="field">Амжилтын босго (%)<input type="number" id="stSucc" min="0" max="100" value="${st.thrSuccess}"></label>
     <label class="field">Чанарын босго (%)<input type="number" id="stQual" min="0" max="100" value="${st.thrQuality}"></label>
@@ -4530,7 +4631,7 @@ const A = {
     const ex = { id: newId(), name, subject: $('#nxSubject').value.trim(), classId: $('#nxClass').value, date: $('#nxDate').value || todayStr(), duration: '', count, choices: +$('#nxChoices').value, pointsEach: pts, points: [], penalty: 0, key: Array(count).fill(''), keyVersion: 1, status: 'draft', note: '',
       written: Array.from({ length: Math.min(MAX_WR, Math.max(0, wr)) }, () => ({ prompt: '', max: 2, rubric: '' })) };
     const nv = +$('#nxVer').value || 1;
-    if (nv > 1) { ex.versions = VLAB.slice(0, nv); normalizeKey(ex); }
+    if (nv > 1) { ex.vlab = $('#nxVlab')?.value === 'lat' ? 'lat' : 'cyr'; ex.versions = vlab(ex).slice(0, nv); normalizeKey(ex); }
     put('exams', ex); toast('Шалгалт үүслээ. Одоо түлхүүрээ оруулна уу.'); openExam(ex.id, 'key');
   },
   openExam: el => openExam(el.dataset.id, el.dataset.tab),
@@ -4704,8 +4805,10 @@ const A = {
   },
   repTab: el => { UI.repTab = el.dataset.tab; render(); },
   slipOne: el => downloadSlips(exam(UI.reportExamId), el.dataset.id),
-  cogAI: () => $('#cogFiles')?.click(),
   cogAIw: () => aiCog([]),
+  cogPaste: () => { UI.cogPaste = true; render(); $('#cogText')?.focus(); },
+  cogPasteClose: () => { UI.cogPaste = false; render(); },
+  cogText: () => { const t = ($('#cogText')?.value || '').trim(); if (!t) { toast('Асуултуудын текстийг буулгана уу.', true); return; } aiCog([], t); },
   authTab: el => { UI.authTab = el.dataset.t; UI.authMsg = null; render(); $('#auEmail')?.focus(); },
   authResend: async () => { try { await window.EDU_CLOUD.sendVerification(); toast('Баталгаажуулах имэйлийг дахин илгээлээ.'); } catch (e) { toast(cloudErr(e), true); } },
   adminReload: () => { UI.adminList = null; UI.adminErr = ''; loadAdmin(); render(); },
@@ -4734,7 +4837,7 @@ const A = {
     const st = clone(settings());
     const succ = +$('#stSucc').value, qual = +$('#stQual').value, supp = +$('#stSupp').value;
     if (!(succ >= 0 && succ <= 100 && qual >= 0 && qual <= 100 && supp >= 0 && supp <= 100)) { toast('Босго 0–100 хооронд байх ёстой.', true); return; }
-    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, thrSuccess: succ, thrQuality: qual, thrSupport: supp });
+    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, vlab: $('#stVlab')?.value === 'lat' ? 'lat' : 'cyr', thrSuccess: succ, thrQuality: qual, thrSupport: supp });
     $$('[data-grade]').forEach(inp => { st.grades[+inp.dataset.grade][1] = Math.min(100, Math.max(0, +inp.value || 0)); });
     st.grades.sort((a, b) => b[1] - a[1]);
     S.settings = [st]; put('settings', st); toast('Тохиргоо хадгалагдлаа'); render();
@@ -4792,10 +4895,10 @@ document.addEventListener('change', async ev => {
   if (t.id === 'sfClass' || t.id === 'sfActive') { UI.stuFilter[t.id === 'sfClass' ? 'classId' : 'active'] = t.value; render(); return; }
   if (t.dataset.d && UI.draft) {
     const d = UI.draft.data, f = t.dataset.d;
-    if (f === 'nver') d.versions = +t.value > 1 ? VLAB.slice(0, +t.value) : [];
+    if (f === 'nver') d.versions = +t.value > 1 ? vlab(d).slice(0, +t.value) : [];
     else d[f] = t.value;
     markDirty();
-    if (f === 'count' || f === 'choices' || f === 'nver') { normalizeKey(d); render(); }
+    if (f === 'count' || f === 'choices' || f === 'nver' || f === 'vlab') { normalizeKey(d); render(); }
     if (f === 'writtenOn') render();
     return;
   }
@@ -4840,7 +4943,7 @@ document.addEventListener('input', ev => {
   if (t.id === 'sfQ') { UI.stuFilter.q = t.value; const pos = t.selectionStart; render(); const n = $('#sfQ'); n.focus(); n.setSelectionRange(pos, pos); return; }
   if (t.id === 'classQ') { UI.classQ = t.value; const pos = t.selectionStart; render(); const n = $('#classQ'); n.focus(); n.setSelectionRange(pos, pos); return; }
   if (t.id === 'rpQ') { UI.reportQ = t.value; const pos = t.selectionStart; render(); const n = $('#rpQ'); n.focus(); n.setSelectionRange(pos, pos); return; }
-  if (UI.draft && t.dataset.d && !['count', 'choices', 'classId', 'status', 'nver', 'writtenOn'].includes(t.dataset.d)) { UI.draft.data[t.dataset.d] = t.value; markDirty(); return; }
+  if (UI.draft && t.dataset.d && !['count', 'choices', 'classId', 'status', 'nver', 'writtenOn', 'vlab'].includes(t.dataset.d)) { UI.draft.data[t.dataset.d] = t.value; markDirty(); return; }
   if (t.dataset.cm) { const n = $(`[data-cmn="${t.dataset.cm}"]`); if (n) n.textContent = `${t.value.length}/${NOTE_MAX} · засварлаж байна`; return; }
   if (UI.draft && t.dataset.cg) { cogSetRange(UI.draft.data, t.dataset.cg, t.value); markDirty(); return; }
   if (t.id === 'adminQ') { UI.adminQ = t.value; const pos = t.selectionStart; render(); const n = $('#adminQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch {} return; }
