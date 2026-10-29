@@ -263,6 +263,21 @@ input:disabled, select:disabled { opacity: 0.6; cursor: not-allowed; }
 .cogmat textarea { width: 100%; }
 .qlist { margin: 6px 0 0; padding-left: 22px; display: grid; gap: 2px; }
 label.btn.disabled { opacity: 0.6; pointer-events: none; }
+.newspop { position: fixed; right: 16px; bottom: 16px; width: min(420px, calc(100vw - 32px)); z-index: 60; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px rgba(10,20,40,0.22); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.newspop[hidden] { display: none; }
+.newspop b .ic { color: var(--a2, var(--primary)); vertical-align: -3px; }
+.newsmini, .newslist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.newsmini li { display: flex; gap: 10px; align-items: flex-start; }
+.newsmini li > div { display: flex; flex-direction: column; gap: 2px; }
+.newsmini .ic { flex: none; margin-top: 2px; color: var(--a2, var(--primary)); }
+.newslist li { display: grid; grid-template-columns: 36px 1fr auto; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); }
+.newslist li:first-child { border-top: 0; padding-top: 0; }
+.newsic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
+.sidever { display: flex; gap: 6px; align-items: center; background: none; border: 0; padding: 4px 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.sidever:hover { color: var(--side-ink); }
+.sidever .ic { width: 14px; height: 14px; }
+.newdot { width: 8px; height: 8px; border-radius: 50%; background: #ec4899; flex: none; }
+@media (max-width: 600px) { .newspop { right: 12px; left: 12px; bottom: 12px; width: auto; } .newslist li { grid-template-columns: 36px 1fr; } .newslist li > .btn { grid-column: 2; justify-self: start; } }
 </style>
 <style>
 /* ===== Colorful theme layer: visuals only, no layout or content changes ===== */
@@ -509,6 +524,7 @@ td.wrapcell textarea { width: 100%; box-sizing: border-box; min-height: 52px; fo
     <main class="view" id="view"><p class="muted">Ачаалж байна…</p></main>
   </div>
 </div>
+<div id="newsPop" class="newspop" role="dialog" aria-label="Шинэ боломжууд" hidden></div>
 <div id="toast" hidden></div>
 <input type="file" id="cam" class="hidden-input" accept="image/*" capture="environment" aria-label="Камераар зураг авах">
 <input type="file" id="pick" class="hidden-input" accept="image/*" aria-label="Зураг сонгох">
@@ -3160,6 +3176,7 @@ async function demoPhoto(ex, page = 1) {
 // =============== notifications & search ===============
 function notifications() {
   const out = [];
+  if (newsUnseen() && newsSeen()) out.push({ icon: 'megaphone', text: `EduScan ${APP_VER}: шинэ боломжууд нэмэгдлээ`, go: () => go('news') });
   S.exams.filter(x => x.status !== 'archived').forEach(x => {
     const miss = missingKeys(x);
     if (miss) out.push({ icon: 'key-round', text: `«${x.name}»: ${miss} асуултын зөв хариулт оруулаагүй`, go: () => openExam(x.id, 'key') });
@@ -3207,11 +3224,13 @@ function renderSide() {
   $('#menu').innerHTML = [...PAGES, ...(Cap.admin ? [['admin', 'Бүртгэлүүд', 'shield-check']] : [])].map(([k, l, i]) => `<button class="${cur === k ? 'on' : ''}" data-go="${k}">${ic(i)}<span>${l}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
   const m = { db: [Cap.cloud ? 'Бүртгэлд синк хийгдэнэ' : 'Claude бүртгэлд хадгалагдана', 'var(--ok)'], local: ['Зөвхөн энэ төхөөрөмжид', 'var(--warn)'], memory: ['Түр горим: хадгалагдахгүй', 'var(--bad)'] }[Cap.mode];
   $('#sideFoot').innerHTML = `<span><span class="dot" style="--st:${m[1]}"></span>${m[0]}</span><span><span class="dot" style="--st:${Cap.sample ? 'var(--ok)' : 'var(--bad)'}"></span>AI үнэлгээ: ${Cap.sample ? (Cap.ai === 'api' ? 'Claude API' : 'Claude') : 'боломжгүй'}</span>`;
+  $('#sideFoot').insertAdjacentHTML('beforeend', `<button class="sidever" data-go="news">${ic('megaphone')}<span>Хувилбар ${APP_VER} · Юу шинэ вэ?</span>${newsUnseen() ? '<span class="newdot" aria-label="шинэ"></span>' : ''}</button>`);
+  icons();
   $('#side').classList.toggle('open', UI.sideOpen); $('#scrim').classList.toggle('open', UI.sideOpen);
 }
 function render() {
   const view = $('#view');
-  const fn = { account: pAccount, admin: pAdmin, dashboard: pDashboard, exams: pExams, exam: pExam, classes: pClasses, class: pClass, students: pStudents, student: pStudent, sheets: pSheets, grade: pGrade, reports: pReports, archive: pArchive, settings: pSettings }[UI.page] || pDashboard;
+  const fn = { news: pNews, account: pAccount, admin: pAdmin, dashboard: pDashboard, exams: pExams, exam: pExam, classes: pClasses, class: pClass, students: pStudents, student: pStudent, sheets: pSheets, grade: pGrade, reports: pReports, archive: pArchive, settings: pSettings }[UI.page] || pDashboard;
   view.innerHTML = confirmBar() + fn();
   renderSide(); renderTop(); after();
   try { window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } }); } catch {}
@@ -4487,6 +4506,7 @@ function meMenu() {
   return `<div class="mehead"><span class="avatar lg">${esc(name.slice(0, 1).toUpperCase())}</span><div class="stack" style="gap:2px;min-width:0"><b class="ell">${esc(name)}</b>${Cap.email ? `<span class="small muted ell">${esc(Cap.email)}</span>` : ''}${st.school ? `<span class="small muted ell">${esc(st.school)}</span>` : ''}</div></div>
     <p class="small muted mehow">${ic(Cap.cloud || Cap.mode === 'db' ? 'cloud' : 'hard-drive')}<span>${how}</span></p>
     <button data-go="account">${ic(Cap.cloudAvail && !Cap.cloud ? 'log-in' : 'pencil')}<span>${Cap.cloudAvail && !Cap.cloud ? 'Нэвтрэх / Бүртгүүлэх' : 'Профайл харах, засах'}</span></button>
+    <button data-go="news">${ic('megaphone')}<span>Шинэ боломжууд${newsUnseen() ? ' <span class="pill acc">шинэ</span>' : ''}</span></button>
     <button data-go="settings">${ic('settings')}<span>Тохиргоо</span></button>
     ${Cap.admin ? `<button data-go="admin">${ic('shield-check')}<span>Бүртгэлүүд</span></button>` : ''}
     ${Cap.cloud ? `<button data-act="cloudOut" class="meout">${ic('log-out')}<span>Гарах</span></button>` : ''}`;
@@ -4601,6 +4621,64 @@ async function adminExport() {
   await offerFile(`EduScan бүртгэлүүд ${todayStr()}.xlsx`, new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }
 
+// =============== what's new: shown once after an update, and on its own page ===============
+const APP_VER = '1.4.0', NEWS_LS = 'eduscan-news-seen';
+// newest first: [icon, title, what it does, page to open]
+const NEWS = [
+  { v: '1.4.0', date: '2026-10-29', items: [
+    ['scale', 'Тууштай AI үнэлгээ', 'Задгай даалгаврыг шалгуур тус бүрээр үнэлж, нэг шалгалтын бүх хуудсанд нэг үнэлгээний заавар хэрэглэнэ. Ижил хариулт ижил оноо авна. Тайлангийн «Асуултын шинжилгээ»-нд AI-багшийн тохирол болон «Бүх хариултыг нэг дор тулгах» шалгалт нэмэгдлээ.', 'reports'],
+    ['brain', 'Блүүмийн ангиллыг AI өөрөө хийнэ', 'Шалгалтын материалаа (Word, PDF, зураг) оруулах эсвэл текстээ буулгахад Claude асуулт бүрийн танин мэдэхүйн түвшинг тодорхойлно. Задгай даалгаврын түвшинг шалгалт хадгалахад өөрөө тогтооно.', 'exams'],
+    ['copy', 'A, B, C, D хувилбар', 'Шалгалтыг 4 хүртэл хувилбараар өгөхдөө А Б В Г эсвэл A B C D тэмдэглэгээг сонгоно. Анхдагчийг Тохиргоонд тохируулна.', 'settings'],
+    ['user-cog', 'Профайлын цэс', 'Баруун дээд буланд нэр дээрээ дарж мэдээллээ харах, засах, нууц үгээ солих, гарах боломжтой.', 'account'],
+    ['megaphone', 'Шинэ боломжууд', 'Шинэчлэлт бүрээр юу нэмэгдсэнийг энэ хуудаснаас харна.', ''],
+  ] },
+  { v: '1.3.0', date: '2026-10-29', items: [
+    ['layers', 'Блүүмийн таксономи', 'Асуултуудыг сэргээн санах, ойлгох, хэрэглэх, задлан шинжлэх, үнэлэх, бүтээх түвшнээр ангилж, түвшин тус бүрийн гүйцэтгэл, доод ба дээд эрэмбийн сэтгэлгээний харьцаа, түүнд тулгуурласан зөвлөмж авна.', 'exams'],
+    ['user-plus', 'Имэйлээр бүртгүүлэх', 'Google бүртгэлгүй багш имэйл, нууц үгээрээ бүртгүүлж, утас, компьютер хооронд синк хийнэ.', 'account'],
+    ['key-round', 'Вэб хувилбарт AI үнэлгээ', 'Өөрийн Claude API түлхүүрээ Тохиргоонд оруулбал вэб хувилбарт ч задгай даалгаврыг AI үнэлнэ. Хүсэлт бүрийн зардал харагдана.', 'settings'],
+  ] },
+  { v: '1.2.0', date: '2026-10-29', items: [
+    ['chart-column', 'Мэргэжлийн тайлан', 'Түвшин, сэдвийн гүйцэтгэл, ялгах чадвар, Кронбахын α, дэмжлэг хэрэгтэй сурагчид.', 'reports'],
+    ['file-spreadsheet', 'Excel тайлан', 'Сургуулийн загвартай, амьд томьёотой Excel файл.', 'reports'],
+    ['message-square-text', 'Зөвлөмж, тайлбар', 'Аль сэдвийг дахин заах, заавал дурдах буруу ойлголт, сурагч бүрийн болон ангийн тайлбар.', 'reports'],
+    ['send', 'Grading4you руу илгээх', 'Grading4you-ийн «Дүн татах» файлд оноо, тэмдэглэлийг бичиж «Excel оруулах»-д бэлэн болгоно.', 'reports'],
+  ] },
+  { v: '1.1.0', date: '2026-10-28', items: [
+    ['cloud', 'Утас, компьютер хооронд синк', 'Бүртгэлээр нэвтэрвэл өгөгдөл үүлэнд хадгалагдаж, нэг төхөөрөмж дээр уншуулсан хуудас нөгөөд шууд харагдана.', 'account'],
+    ['files', 'Хувилбар бүрийн задгай даалгавар', 'Хувилбар бүрийн задгай даалгаврыг тусдаа хуудсанд хэвлэнэ.', 'sheets'],
+  ] },
+  { v: '1.0.0', date: '2026-10-27', items: [
+    ['printer', 'Хариултын хуудас', 'Сонгох болон задгай даалгавартай хариултын хуудсыг PDF болгон хэвлэнэ.', 'sheets'],
+    ['scan-line', 'Камераар уншуулах', 'Утасны камераар хуудсыг шууд эсвэл зургаар уншуулж, дүнг автоматаар тооцно.', 'grade'],
+    ['smartphone', 'Апп болгон суулгах', 'Утсандаа апп болгон суулгаж, интернэтгүй үед ч ашиглана.', ''],
+  ] },
+];
+const newsSeen = () => { try { return localStorage.getItem(NEWS_LS) || ''; } catch { return ''; } };
+const newsUnseen = () => newsSeen() !== APP_VER;
+function markNewsSeen() { try { localStorage.setItem(NEWS_LS, APP_VER); } catch {} }
+function newsAfterBoot() {
+  if (!newsUnseen()) return;
+  // a teacher opening EduScan for the first time has nothing to compare with
+  if (!newsSeen() && !S.exams.length && !S.classes.length && !S.attempts.length) { markNewsSeen(); return; }
+  UI.newsPop = true; renderNewsPop();
+}
+function renderNewsPop() {
+  const box = $('#newsPop'); if (!box) return;
+  box.hidden = !UI.newsPop || UI.page === 'news';
+  if (box.hidden) return;
+  const r = NEWS[0];
+  box.innerHTML = `<div class="spread"><b>${ic('megaphone')} Шинэ боломжууд · ${esc(r.v)}</b><button class="iconbtn" data-act="newsClose" aria-label="Хаах">${ic('x')}</button></div>
+    <ul class="newsmini">${r.items.filter(x => x[3] !== '' || x[0] !== 'megaphone').slice(0, 4).map(([i, t, d]) => `<li>${ic(i)}<div><b>${esc(t)}</b><span class="small muted">${esc(d.length > 110 ? d.slice(0, 108).replace(/\s+\S*$/, '').replace(/[\s.,;:]+$/, '') + '…' : d)}</span></div></li>`).join('')}</ul>
+    <div class="row"><button class="btn primary sm" data-go="news">Бүгдийг харах</button><button class="btn sm" data-act="newsClose">Ойлголоо</button></div>`;
+  icons();
+}
+function pNews() {
+  markNewsSeen(); UI.newsPop = false; renderNewsPop();
+  return `<h1>Шинэ боломжууд</h1><p class="muted">EduScan Mongolia-д шинэчлэлт бүрээр нэмэгдсэн боломжууд. Одоогийн хувилбар: <b>${APP_VER}</b>.</p>
+  ${NEWS.map((r, k) => `<div class="card"><div class="spread"><h2>Хувилбар ${esc(r.v)} ${k === 0 ? '<span class="pill ok">сүүлийнх</span>' : ''}</h2><span class="small muted mono">${esc(r.date)}</span></div>
+    <ul class="newslist">${r.items.map(([i, t, d, g]) => `<li><span class="newsic">${ic(i)}</span><div class="stack" style="gap:2px"><b>${esc(t)}</b><span class="small muted">${esc(d)}</span></div>${g ? `<button class="btn sm" data-go="${g}">Нээх</button>` : '<span></span>'}</li>`).join('')}</ul></div>`).join('')}`;
+}
+
 // =============== pages: archive & settings ===============
 function pArchive() {
   const list = S.exams.filter(x => x.status === 'archived').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -4643,6 +4721,7 @@ const A = {
   confirmNo: () => { UI.confirm = null; render(); },
   openSide: () => { UI.sideOpen = true; renderSide(); },
   closeSide: () => { UI.sideOpen = false; renderSide(); },
+  newsClose: () => { markNewsSeen(); UI.newsPop = false; renderNewsPop(); renderSide(); },
   toggleMe: () => { UI.meOpen = !UI.meOpen; UI.notifOpen = false; renderTop(); icons(); },
   toggleNotif: () => { UI.notifOpen = !UI.notifOpen; UI.meOpen = false; renderTop(); try { window.lucide?.createIcons(); } catch {} },
   notifGo: el => { const n = notifications()[+el.dataset.i]; UI.notifOpen = false; n?.go(); },
@@ -5007,7 +5086,7 @@ window.addEventListener('beforeunload', ev => { if (UI.draft?.dirty) { ev.preven
 function icons() { try { window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } }); } catch {} }
 
 document.addEventListener('submit', ev => { const id = ev.target.id, fn = { authForm: authSubmit, profileForm: profileSave, pwForm: pwChange }[id]; if (!fn) return; ev.preventDefault(); fn(); });
-(async () => { await initStore(); render(); accountsAfterBoot(); })();
+(async () => { await initStore(); render(); accountsAfterBoot(); newsAfterBoot(); })();
 </script>
 
 <button id="installBtn" hidden aria-label="EduScan-ийг апп болгон суулгах">＋ Апп болгон суулгах</button>
