@@ -24,7 +24,7 @@ img { max-width: 100%; }
 <script src="firebase-config.js?v=47877650"></script>
 <script src="cloud.js?v=76eecf87"></script>
 <title>EduScan Mongolia</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Caveat:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Caveat:wght@500&family=Tinos:wght@400;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
@@ -278,6 +278,8 @@ label.btn.disabled { opacity: 0.6; pointer-events: none; }
 .sidever .ic { width: 14px; height: 14px; }
 .newdot { width: 8px; height: 8px; border-radius: 50%; background: #ec4899; flex: none; }
 @media (max-width: 600px) { .newspop { right: 12px; left: 12px; bottom: 12px; width: auto; } .newslist li { grid-template-columns: 36px 1fr; } .newslist li > .btn { grid-column: 2; justify-self: start; } }
+.bqcta { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border-top: 1px dashed var(--line); padding-top: 12px; width: 100%; }
+#bqCard .bar.wide { height: 8px; }
 </style>
 <style>
 /* ===== Colorful theme layer: visuals only, no layout or content changes ===== */
@@ -536,6 +538,7 @@ details.lv8 summary { cursor: pointer; }
 <div id="toast" hidden></div>
 <input type="file" id="cam" class="hidden-input" accept="image/*" capture="environment" aria-label="Камераар зураг авах">
 <input type="file" id="pick" class="hidden-input" accept="image/*" aria-label="Зураг сонгох">
+<input type="file" id="pickMany" class="hidden-input" accept="image/*,application/pdf,.pdf" multiple aria-label="Олон хуудас сонгох">
 <input type="file" id="importFile" class="hidden-input" accept=".xlsx,.xls,.csv" aria-label="Сурагчдын файл">
 <input type="file" id="backupFile" class="hidden-input" accept=".json" aria-label="Нөөц файл">
 <input type="file" id="camBack" class="hidden-input" accept="image/*" capture="environment" aria-label="2-р нүүрийг камераар авах">
@@ -713,8 +716,8 @@ async function initStore() {
   } catch { Cap.mode = 'memory'; }
 }
 const chains = {};
-function put(kind, obj) {
-  obj.updatedAt = now(); if (!obj.createdAt) obj.createdAt = obj.updatedAt;
+function put(kind, obj, keepTime) {
+  if (!keepTime || !obj.updatedAt) obj.updatedAt = now(); if (!obj.createdAt) obj.createdAt = obj.updatedAt;
   const list = S[kind]; const i = list.findIndex(o => o.id === obj.id);
   if (i < 0) list.push(obj); else list[i] = obj;
   profileSoon();
@@ -1759,8 +1762,37 @@ const WR_TOP = 146, WR_BOTTOM = 272;
 // written section: full task text, answer space shared by points; goes to page 2 when the front is too tight
 const BACK_ID = [27, 283]; // small square printed only on page 2, next to the bottom-left marker
 const BACK_TOP = 48, BACK_BOTTOM = 274, WR_GAP = 3, WR_FONT = 2.85, WR_LH = 4, WR_TEXT_W = 176, WR_MIN_FRONT = 30;
-const wrFont = (w = 400) => `${w} ${WR_FONT}px "Golos Text", Arial, sans-serif`;
+const wrFont = (w = 400, fam = SHEET_FONTS.golos[1]) => `${w} ${WR_FONT}px ${fam}`;
 const wrHead = n => n ? 8.2 + n * WR_LH : 8;
+// ---- answer sheet designs ----
+// 'std': the original layout. 'cam': made for phone cameras: larger, wider spaced bubbles with faint letters (bold letters
+// stand above each column), alignment anchors on both edges so a curved or bent sheet is straightened band by band,
+// Times New Roman. A small square printed only on 'cam' sheets (bottom right) lets the scanner tell the designs apart,
+// so sheets printed earlier keep reading whatever the exam is set to now.
+const SHEET_DESIGNS = { std: 'Стандарт', cam: 'Камерт зориулсан' };
+const SHEET_FONTS = { times: ['Times New Roman', '"Times New Roman", Tinos, "Liberation Serif", Times, serif'], golos: ['Golos Text', '"Golos Text", Arial, sans-serif'] };
+function sheetOf(ex) {
+  const design = ex?.sheet?.design === 'cam' ? 'cam' : 'std';
+  return { design, font: SHEET_FONTS[ex?.sheet?.font] ? ex.sheet.font : design === 'cam' ? 'times' : 'golos' };
+}
+const CAM_ID = [183, 283], CAM_R = 2.5, CAM_AX = [10, 200.5], CAM_AY = [50, 84, 118, 152], CAM_AS = 3;
+const camColX = c => 53 + c * 35.5, camPitch = ch => ch >= 5 ? 5.9 : 6.6;
+const GEO = {
+  std: { r: BUB_R, mc: (i, k) => mcPos(i, k), id: idPos, ver: verPos, wrTop: WR_TOP, blank: [[105, 40], [105, 141.5], [45, 141.5]] },
+  cam: { r: CAM_R, mc: (i, k, ch = 4) => [camColX(Math.floor(i / 15)) + 9 + k * camPitch(ch), 54 + (i % 15) * 6.8],
+    id: (col, d) => [19 + col * 7.4, 61 + d * 6.6], ver: j => [19 + j * 7.4, 134], wrTop: 162, blank: [[105, 40], [110, 154.6], [180, 154.6]] },
+};
+const geoOf = ex => GEO[sheetOf(ex).design];
+const famOf = ex => SHEET_FONTS[sheetOf(ex).font][1];
+// Times New Roman is on most Windows and Mac computers; elsewhere the metric-compatible Tinos (with Cyrillic) is loaded
+let SFONTS = null;
+function sheetFontsReady() {
+  if (!SFONTS) SFONTS = Promise.race([
+    Promise.all([400, 700].map(w => document.fonts?.load?.(`${w} 12px Tinos`, 'Хариултын хуудас ABCD 0123'))).catch(() => {}),
+    new Promise(r => setTimeout(r, 2500)),
+  ]);
+  return SFONTS;
+}
 let MCTX = null;
 function wrapText(ctx, s, maxW) {
   const out = [];
@@ -1792,7 +1824,7 @@ function wrPage(ex) {
   if (ex._page) return ex._page;
   // the all-versions text decides, so every version's sheet prints on the same page
   const txt = (t, i) => nVer(ex) > 1 ? allVerText(ex, i) : t.prompt;
-  const free = WR_BOTTOM - WR_TOP - WR_GAP * (wr.length - 1) - wr.reduce((a, t, i) => a + wrHead(estLines(txt(t, i))), 0);
+  const free = WR_BOTTOM - geoOf(ex).wrTop - WR_GAP * (wr.length - 1) - wr.reduce((a, t, i) => a + wrHead(estLines(txt(t, i))), 0);
   return free / wr.length >= WR_MIN_FRONT ? 1 : 2;
 }
 // the exam as printed for one version: written task text swapped in, page choice kept from the whole exam
@@ -1802,9 +1834,9 @@ function exV(ex, v) {
 }
 function wrLayout(ex, ctx) {
   const wr = ex.written || []; if (!wr.length || !wrPage(ex)) return null;
-  const page = wrPage(ex), top = page === 1 ? WR_TOP : BACK_TOP, bottom = page === 1 ? WR_BOTTOM : BACK_BOTTOM;
+  const page = wrPage(ex), top = page === 1 ? geoOf(ex).wrTop : BACK_TOP, bottom = page === 1 ? WR_BOTTOM : BACK_BOTTOM;
   if (!ctx) ctx = MCTX || (MCTX = document.createElement('canvas').getContext('2d'));
-  ctx.save(); ctx.font = wrFont();
+  ctx.save(); ctx.font = wrFont(400, famOf(ex));
   const lines = wr.map(t => wrapText(ctx, t.prompt, WR_TEXT_W));
   ctx.restore();
   const heads = lines.map(l => wrHead(l.length));
@@ -1814,7 +1846,7 @@ function wrLayout(ex, ctx) {
   const boxes = wr.map((t, i) => { const b = { y, h: heads[i] + free * wt[i] / sw, head: heads[i], lines: lines[i] }; y += b.h + WR_GAP; return b; });
   return { page, top, bottom, boxes };
 }
-function drawWritten(ctx, ex, L, F) {
+function drawWritten(ctx, ex, L, F, fam = famOf(ex)) {
   L.boxes.forEach((b, i) => {
     const t = ex.written[i];
     ctx.fillStyle = '#f2f2f2'; ctx.fillRect(14, b.y, 182, b.head);
@@ -1828,7 +1860,7 @@ function drawWritten(ctx, ex, L, F) {
     ctx.fillText(`Даалгавар ${i + 1}`, 16.5, b.y + 5.2);
     ctx.textAlign = 'right'; ctx.fillStyle = '#444'; ctx.font = F(2.6, 500);
     ctx.fillText(`Оноо: ______ / ${fmt(+t.max || 0)}`, 193.5, b.y + 5.2);
-    ctx.textAlign = 'left'; ctx.fillStyle = '#1a1a1a'; ctx.font = wrFont();
+    ctx.textAlign = 'left'; ctx.fillStyle = '#1a1a1a'; ctx.font = wrFont(400, fam);
     b.lines.forEach((ln, j) => ctx.fillText(ln, 16.5, b.y + 9.8 + j * WR_LH));
   });
 }
@@ -1842,8 +1874,11 @@ function fitText(ctx, s, maxW) {
 function drawSheet(ctx, p, ex, opt = {}) {
   // textV: the version whose task text a blank sheet carries while the student still marks the version bubble
   ex = exV(ex, opt.version || opt.textV);
+  const sh = sheetOf(ex), cam = sh.design === 'cam', G = GEO[sh.design], FAM = SHEET_FONTS[sh.font][1];
+  const MONO = sh.font === 'times' ? FAM : '"JetBrains Mono", monospace';
   const cls = klass(opt.classId ?? ex.classId), st = opt.student;
-  const F = (sz, w = 400, fam = '"Golos Text", Arial, sans-serif') => `${w} ${sz}px ${fam}`;
+  const F = (sz, w = 400, fam = FAM) => `${w} ${sz}px ${fam}`;
+  const B = (x, y, label, filled) => bubble(ctx, x, y, label, filled, G.r, FAM, cam);
   ctx.save(); ctx.scale(p, p);
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 210, 297);
   ctx.fillStyle = '#000';
@@ -1858,8 +1893,13 @@ function drawSheet(ctx, p, ex, opt = {}) {
   ctx.fillStyle = '#111'; ctx.font = F(3.2, 600); ctx.fillText(fitText(ctx, ex.name, 112), 14, 25.5);
   ctx.textAlign = 'right'; ctx.font = F(2.9);
   ctx.fillText([ex.subject, cls?.name, ex.date].filter(Boolean).join(' · '), 196, 25.5); ctx.textAlign = 'left';
-  if (back) { drawBack(ctx, ex, st, F, opt.version || opt.textV); ctx.restore(); return; }
-  ctx.font = F(2.9, 500); ctx.fillText('Овог, нэр:', 14, 35); ctx.fillText('Анги:', 140, 35);
+  if (back) { drawBack(ctx, ex, st, F, opt.version || opt.textV, MONO); ctx.restore(); return; }
+  if (cam) {
+    // design mark (bottom right) and the alignment anchors on both edges
+    ctx.fillStyle = '#000'; ctx.fillRect(CAM_ID[0] - 3, CAM_ID[1] - 3, 6, 6);
+    CAM_AX.forEach(x => CAM_AY.forEach(y => ctx.fillRect(x - CAM_AS / 2, y - CAM_AS / 2, CAM_AS, CAM_AS)));
+  }
+  ctx.fillStyle = '#111'; ctx.font = F(2.9, 500); ctx.fillText('Овог, нэр:', 14, 35); ctx.fillText('Анги:', 140, 35);
   ctx.strokeStyle = '#777'; ctx.lineWidth = 0.2;
   ctx.beginPath(); ctx.moveTo(29, 35.6); ctx.lineTo(136, 35.6); ctx.moveTo(149, 35.6); ctx.lineTo(196, 35.6); ctx.stroke();
   if (st) {
@@ -1867,59 +1907,71 @@ function drawSheet(ctx, p, ex, opt = {}) {
     const sc = klass(st.classId); if (sc) ctx.fillText(fitText(ctx, sc.name, 45), 151, 34.6);
   }
   // student code
-  ctx.font = F(2.5, 600); ctx.fillStyle = '#111'; ctx.fillText('Сурагчийн код', 14, 44.5);
+  ctx.font = F(cam ? 2.8 : 2.5, 600); ctx.fillStyle = '#111'; ctx.fillText('Сурагчийн код', 14, 44.5);
   const digits = st ? pad4(st.code) : null;
   for (let c = 0; c < 4; c++) {
-    const [x] = idPos(c, 0);
+    const [x] = G.id(c, 0);
     ctx.strokeStyle = '#333'; ctx.lineWidth = 0.25; ctx.strokeRect(x - 3, 47, 6, 6);
-    if (digits) { ctx.fillStyle = '#111'; ctx.font = F(3.6, 600, '"JetBrains Mono", monospace'); ctx.textAlign = 'center'; ctx.fillText(digits[c], x, 51.4); ctx.textAlign = 'left'; }
-    for (let d = 0; d < 10; d++) { const [bx, by] = idPos(c, d); bubble(ctx, bx, by, String(d), digits && +digits[c] === d); }
+    if (digits) { ctx.fillStyle = '#111'; ctx.font = F(3.6, 600, MONO); ctx.textAlign = 'center'; ctx.fillText(digits[c], x, 51.4); ctx.textAlign = 'left'; }
+    for (let d = 0; d < 10; d++) { const [bx, by] = G.id(c, d); B(bx, by, String(d), digits && +digits[c] === d); }
   }
   // version bubbles (only for multi-version exams)
   if (nVer(ex) > 1) {
-    ctx.fillStyle = '#111'; ctx.font = F(2.5, 600); ctx.fillText(opt.version ? `Хувилбар: ${opt.version}` : 'Хувилбар', 14, 122);
-    ex.versions.forEach((v, j) => { const [bx, by] = verPos(j); bubble(ctx, bx, by, v, opt.version === v); });
+    ctx.fillStyle = '#111'; ctx.font = F(cam ? 2.8 : 2.5, 600); ctx.fillText(opt.version ? `Хувилбар: ${opt.version}` : 'Хувилбар', 14, cam ? 129.6 : 122);
+    ex.versions.forEach((v, j) => { const [bx, by] = G.ver(j); B(bx, by, v, opt.version === v); });
   }
   // fill instructions
-  ctx.font = F(2.2); ctx.fillStyle = '#444';
-  ctx.fillText('Зөв:', 14, 133.5);
-  ctx.beginPath(); ctx.arc(24, 132.7, 1.6, 0, Math.PI * 2); ctx.fillStyle = '#000'; ctx.fill();
-  ctx.fillStyle = '#444'; ctx.fillText('Буруу:', 14, 138.5);
-  [[28, '✓'], [33, '✗'], [38, '•']].forEach(([x, m]) => { ctx.beginPath(); ctx.arc(x, 137.7, 1.6, 0, Math.PI * 2); ctx.lineWidth = 0.2; ctx.strokeStyle = '#333'; ctx.stroke(); ctx.fillStyle = '#333'; ctx.textAlign = 'center'; ctx.fillText(m, x, 138.5); ctx.textAlign = 'left'; });
+  const fy = cam ? 141 : 133.5;
+  ctx.font = F(cam ? 2.5 : 2.2); ctx.fillStyle = '#444';
+  ctx.fillText('Зөв:', 14, fy);
+  ctx.beginPath(); ctx.arc(24, fy - 0.8, 1.6, 0, Math.PI * 2); ctx.fillStyle = '#000'; ctx.fill();
+  ctx.fillStyle = '#444'; ctx.fillText('Буруу:', 14, fy + 5);
+  [[28, '✓'], [33, '✗'], [38, '•']].forEach(([x, m]) => { ctx.beginPath(); ctx.arc(x, fy + 4.2, 1.6, 0, Math.PI * 2); ctx.lineWidth = 0.2; ctx.strokeStyle = '#333'; ctx.stroke(); ctx.fillStyle = '#333'; ctx.textAlign = 'center'; ctx.fillText(m, x, fy + 5); ctx.textAlign = 'left'; });
   // multiple choice
-  ctx.fillStyle = '#111'; ctx.font = F(2.5, 600); ctx.fillText('I хэсэг. Сонгох хариулт', 50, 44.5);
+  ctx.fillStyle = '#111'; ctx.font = F(cam ? 2.8 : 2.5, 600); ctx.fillText('I хэсэг. Сонгох хариулт', cam ? camColX(0) : 50, 44.5);
   const ch = ex.choices || 4, fk = keyOf(ex, opt.version);
+  if (cam) {
+    // bold letters above each column (the ones inside the bubbles stay faint); a thin line after every fifth row
+    for (let c = 0; c * 15 < ex.count; c++) {
+      ctx.fillStyle = '#111'; ctx.font = F(2.9, 700); ctx.textAlign = 'center';
+      for (let k = 0; k < ch; k++) ctx.fillText(LET[k], G.mc(c * 15, k, ch)[0], 49.8);
+      ctx.textAlign = 'left'; ctx.strokeStyle = '#bdbdbd'; ctx.lineWidth = 0.25; ctx.beginPath();
+      [5, 10].forEach(s => { if (c * 15 + s < ex.count) { const y = 54 + (s - 0.5) * 6.8; ctx.moveTo(camColX(c) + 1, y); ctx.lineTo(G.mc(c * 15, ch - 1, ch)[0] + 3.2, y); } });
+      ctx.stroke();
+    }
+  }
   for (let i = 0; i < ex.count; i++) {
-    const [bx0, y] = mcPos(i, 0);
-    ctx.fillStyle = '#111'; ctx.font = F(2.6, 600, '"JetBrains Mono", monospace'); ctx.textAlign = 'right';
-    ctx.fillText(String(i + 1), bx0 - 3.4, y + 0.95); ctx.textAlign = 'left';
-    for (let k = 0; k < ch; k++) { const [bx, by] = mcPos(i, k); bubble(ctx, bx, by, LET[k], opt.fillKey && fk[i] === LET[k]); }
+    const [bx0, y] = G.mc(i, 0, ch);
+    ctx.fillStyle = '#111'; ctx.font = F(cam ? 3.1 : 2.6, cam ? 700 : 600, MONO); ctx.textAlign = 'right';
+    ctx.fillText(String(i + 1), bx0 - (cam ? 4.1 : 3.4), y + (cam ? 1.1 : 0.95)); ctx.textAlign = 'left';
+    for (let k = 0; k < ch; k++) { const [bx, by] = G.mc(i, k, ch); B(bx, by, LET[k], opt.fillKey && fk[i] === LET[k]); }
   }
   // written section
-  const L = wrLayout(ex, ctx);
+  const L = wrLayout(ex, ctx), w0 = G.wrTop;
   if (L && L.page === 1) {
-    ctx.fillStyle = '#111'; ctx.font = F(2.5, 600); ctx.fillText('II хэсэг. Задгай даалгавар', 14, 143.6);
-    drawWritten(ctx, ex, L, F);
+    ctx.fillStyle = '#111'; ctx.font = F(cam ? 2.8 : 2.5, 600); ctx.fillText('II хэсэг. Задгай даалгавар', 14, w0 - (cam ? 2.8 : 2.4));
+    drawWritten(ctx, ex, L, F, FAM);
   } else if (L) {
-    ctx.setLineDash([1.2, 1]); ctx.strokeStyle = '#999'; ctx.lineWidth = 0.25; ctx.strokeRect(14, 147, 182, 14); ctx.setLineDash([]);
+    ctx.setLineDash([1.2, 1]); ctx.strokeStyle = '#999'; ctx.lineWidth = 0.25; ctx.strokeRect(14, w0 + 1, 182, 14); ctx.setLineDash([]);
     ctx.textAlign = 'center'; ctx.fillStyle = '#111'; ctx.font = F(3, 700);
-    ctx.fillText(`II хэсэг. Задгай даалгавар · ${ex.written.length} даалгавар · ${fmt(wrTotal(ex))} оноо`, 105, 152.8);
+    ctx.fillText(`II хэсэг. Задгай даалгавар · ${ex.written.length} даалгавар · ${fmt(wrTotal(ex))} оноо`, 105, w0 + 6.8);
     ctx.fillStyle = '#444'; ctx.font = F(2.7);
-    ctx.fillText('Хуудасны ар талд (2-р нүүрт) байна. Хуудсаа эргүүлээд хариултаа бичнэ үү.', 105, 157.8);
+    ctx.fillText('Хуудасны ар талд (2-р нүүрт) байна. Хуудсаа эргүүлээд хариултаа бичнэ үү.', 105, w0 + 11.8);
     ctx.textAlign = 'left';
     // freed space becomes scratch paper; the scanner never reads this area
-    ctx.setLineDash([1.2, 1]); ctx.strokeStyle = '#c8c8c8'; ctx.lineWidth = 0.25; ctx.strokeRect(14, 166, 182, 106); ctx.setLineDash([]);
-    ctx.fillStyle = '#999'; ctx.font = F(2.5, 500); ctx.fillText('Ноорог · тооцоо бодох зай (үнэлгээнд орохгүй)', 17, 170.6);
+    ctx.setLineDash([1.2, 1]); ctx.strokeStyle = '#c8c8c8'; ctx.lineWidth = 0.25; ctx.strokeRect(14, w0 + 20, 182, WR_BOTTOM - w0 - 20); ctx.setLineDash([]);
+    ctx.fillStyle = '#999'; ctx.font = F(2.5, 500); ctx.fillText('Ноорог · тооцоо бодох зай (үнэлгээнд орохгүй)', 17, w0 + 24.6);
   } else if ((ex.written || []).length && ex.writtenOn === 'paper') {
-    ctx.fillStyle = '#111'; ctx.font = F(2.5, 600); ctx.fillText('II хэсэг. Задгай даалгавар', 14, 150);
-    ctx.font = F(2.5); ctx.fillStyle = '#555'; ctx.fillText(`Задгай ${ex.written.length} даалгаврыг шалгалтын материал дээр бодно. Энэ хуудсанд бичихгүй.`, 14, 155);
+    ctx.fillStyle = '#111'; ctx.font = F(2.5, 600); ctx.fillText('II хэсэг. Задгай даалгавар', 14, w0 + 4);
+    ctx.font = F(2.5); ctx.fillStyle = '#555'; ctx.fillText(`Задгай ${ex.written.length} даалгаврыг шалгалтын материал дээр бодно. Энэ хуудсанд бичихгүй.`, 14, w0 + 9);
   }
   ctx.fillStyle = '#666'; ctx.font = F(2.3); ctx.textAlign = 'center';
-  ctx.fillText('Дугуйг бүрэн будна уу. Нэг асуултад нэг хариулт. Дөрвөн булангийн хар дөрвөлжинд юм бичиж болохгүй.', 105, 284);
+  ctx.fillText(cam ? 'Дугуйг бүрэн будна уу. Нэг асуултад нэг хариулт. Хар дөрвөлжин тэмдгүүд дээр юм бичиж болохгүй.'
+    : 'Дугуйг бүрэн будна уу. Нэг асуултад нэг хариулт. Дөрвөн булангийн хар дөрвөлжинд юм бичиж болохгүй.', 105, 284);
   ctx.restore();
 }
 // page 2: written tasks only, same corner markers so it can be photographed and straightened
-function drawBack(ctx, ex, st, F, v) {
+function drawBack(ctx, ex, st, F, v, MONO = '"JetBrains Mono", monospace') {
   ctx.fillStyle = '#000'; ctx.fillRect(BACK_ID[0] - 3, BACK_ID[1] - 3, 6, 6);
   ctx.fillStyle = '#111'; ctx.font = F(2.9, 500);
   ctx.fillText('Овог, нэр:', 14, 35); ctx.fillText('Анги:', 122, 35); ctx.fillText('Код:', 161, 35);
@@ -1929,7 +1981,7 @@ function drawBack(ctx, ex, st, F, v) {
   for (let c = 0; c < 4; c++) {
     const x = 172 + c * 7;
     ctx.strokeStyle = '#333'; ctx.lineWidth = 0.25; ctx.strokeRect(x - 3, 30.6, 6, 6);
-    if (digits) { ctx.fillStyle = '#111'; ctx.font = F(3.6, 600, '"JetBrains Mono", monospace'); ctx.textAlign = 'center'; ctx.fillText(digits[c], x, 35); ctx.textAlign = 'left'; }
+    if (digits) { ctx.fillStyle = '#111'; ctx.font = F(3.6, 600, MONO); ctx.textAlign = 'center'; ctx.fillText(digits[c], x, 35); ctx.textAlign = 'left'; }
   }
   if (st) {
     ctx.fillStyle = '#111'; ctx.font = F(3.5, 500); ctx.fillText(fitText(ctx, fullName(st), 86), 31, 34.6);
@@ -1939,16 +1991,17 @@ function drawBack(ctx, ex, st, F, v) {
   ctx.textAlign = 'right'; ctx.fillStyle = '#444'; ctx.font = F(2.7, 500);
   ctx.fillText(`Нийт ${fmt(wrTotal(ex))} оноо`, 196, 44.6); ctx.textAlign = 'left';
   const L = wrLayout(ex, ctx);
-  if (L) drawWritten(ctx, ex, L, F);
+  if (L) drawWritten(ctx, ex, L, F, famOf(ex));
   ctx.fillStyle = '#666'; ctx.font = F(2.3); ctx.textAlign = 'center';
   ctx.fillText('Хариултаа хүрээн дотор, гаргацтай бичнэ үү. Дөрвөн булангийн хар дөрвөлжинд юм бичиж болохгүй.', 105, 284);
   ctx.textAlign = 'left';
 }
-function bubble(ctx, x, y, label, filled) {
-  ctx.beginPath(); ctx.arc(x, y, BUB_R, 0, Math.PI * 2);
+// faint: the camera design keeps the letter inside an empty bubble light, so only a filled bubble reads dark
+function bubble(ctx, x, y, label, filled, r = BUB_R, fam = SHEET_FONTS.golos[1], faint = false) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
   if (filled) { ctx.fillStyle = '#000'; ctx.fill(); return; }
-  ctx.lineWidth = 0.25; ctx.strokeStyle = '#333'; ctx.stroke();
-  ctx.fillStyle = '#b8b8b8'; ctx.font = '600 2.1px "Golos Text", Arial, sans-serif';
+  ctx.lineWidth = faint ? 0.3 : 0.25; ctx.strokeStyle = faint ? '#444' : '#333'; ctx.stroke();
+  ctx.fillStyle = faint ? '#cfcfcf' : '#b8b8b8'; ctx.font = `${faint ? 500 : 600} ${faint ? 2.2 : 2.1}px ${fam}`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x, y + 0.12);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
@@ -2026,14 +2079,17 @@ function components(P) {
   }
   return comps;
 }
-function findCorners(comps, w, h) {
-  let c = comps.filter(o => {
+// square, solid blobs that could be corner markers, largest first
+function markerComps(comps, w, h) {
+  return comps.filter(o => {
     if (o.border || o.area > w * h * 0.03) return false;
     const bw = o.x1 - o.x0 + 1, bh = o.y1 - o.y0 + 1, ar = bw / bh;
     return ar > 0.4 && ar < 2.5 && o.area / (bw * bh) > 0.55;
-  });
-  c.sort((a, b) => b.area - a.area); c = c.slice(0, 14);
-  let best = null; const n = c.length;
+  }).sort((a, b) => b.area - a.area);
+}
+// every four of them that form a plausible sheet outline (convex, A4-like, markers of the expected size)
+function quadCands(c) {
+  const out = [], n = c.length;
   for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let d = b + 1; d < n; d++) for (let e = d + 1; e < n; e++) {
     const s = [c[a], c[b], c[d], c[e]], areas = s.map(o => o.area);
     if (Math.max(...areas) / Math.min(...areas) > 3.5) continue;
@@ -2052,9 +2108,13 @@ function findCorners(comps, w, h) {
     if (ratio < 1.15 || ratio > 2.3) continue;
     const side = Math.min(pA, pB) * 12 / 182, expA = side * side;
     if (areas.some(ar => ar < expA * 0.25 || ar > expA * 2.6)) continue;
-    poly = Math.abs(poly) / 2;
-    if (!best || poly > best.poly) best = { poly, pts };
+    out.push({ poly: Math.abs(poly) / 2, pts, comps: s });
   }
+  return out;
+}
+function findCorners(comps, w, h) {
+  let best = null;
+  quadCands(markerComps(comps, w, h).slice(0, 14)).forEach(q => { if (!best || q.poly > best.poly) best = q; });
   return best ? { pts: best.pts, frac: best.poly / (w * h) } : null;
 }
 function diskDark(P, H, cx, cy, rad) {
@@ -2075,6 +2135,26 @@ function decide(vals, thr) {
   if (top < thr) return { v: -1, flag: top > thr * 0.75 };
   if (sec >= thr && sec > top * 0.7) return { v: -2, flag: true };
   return { v: idx[0][1], flag: sec >= thr * 0.85 || top < thr * 1.25 };
+}
+// 'cam' sheets: find one small edge anchor near where the whole-sheet fit expects it; its centre in pixels, or null
+function anchorFind(P, H, x, y) {
+  const step = 0.3, half = 3.6; let n = 0, sx = 0, sy = 0, u0 = 9, u1 = -9, v0 = 9, v1 = -9;
+  for (let v = -half; v <= half + 1e-9; v += step) for (let u = -half; u <= half + 1e-9; u += step) {
+    const [px, py] = hApply(H, x + u, y + v), xi = Math.round(px), yi = Math.round(py);
+    if (xi < 0 || yi < 0 || xi >= P.w || yi >= P.h) continue;
+    if (P.g[yi * P.w + xi] >= P.mean(xi, yi) * 0.62) continue;
+    n++; sx += u; sy += v; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v;
+  }
+  const exp = (CAM_AS / step) ** 2;
+  if (n < exp * 0.35 || n > exp * 2.2 || u1 - u0 > CAM_AS * 1.9 || v1 - v0 > CAM_AS * 1.9) return null;
+  return hApply(H, x + sx / n, y + sy / n);
+}
+// one homography per band between two rows of anchors: a curved or bent sheet is straightened piece by piece
+function camBands(P, H) {
+  const at = CAM_AY.map(y => CAM_AX.map(x => anchorFind(P, H, x, y) || hApply(H, x, y)));
+  return [0, 1, 2].map(b => homography(
+    [[CAM_AX[0], CAM_AY[b]], [CAM_AX[1], CAM_AY[b]], [CAM_AX[1], CAM_AY[b + 1]], [CAM_AX[0], CAM_AY[b + 1]]],
+    [at[b][0], at[b][1], at[b + 1][1], at[b + 1][0]]));
 }
 function scanSheet(bmp, ex) {
   const work = toCanvas(bmp, 1600);
@@ -2100,17 +2180,23 @@ function scanSheet(bmp, ex) {
   if (best && diskDark(P, best.H, BACK_ID[0], BACK_ID[1], 2) > 0.45) {
     return { ok: false, back: true, overlay: work, msg: 'Энэ хариултын хуудасны 2-р нүүр байна. Эхлээд сонгох хариулттай 1-р нүүрийг уншуулна уу.', issues };
   }
-  const H = best.H, ch = ex.choices || 4, n = ex.count, rad = BUB_R * 0.6;
+  // which design was printed: only the 'cam' sheet has a small square at the bottom right
+  const design = diskDark(P, best.H, CAM_ID[0], CAM_ID[1], 2) > 0.45 ? 'cam' : 'std', G = GEO[design];
+  const H = best.H, ch = ex.choices || 4, n = ex.count, rad = G.r * 0.6;
   // verify the fit: all four markers and the orientation square solid, known blank areas blank
   const markersOk = MARKERS.every(([x, y]) => diskDark(P, H, x, y, 4) > 0.5);
-  const blankOk = [[105, 40], [105, 141.5], [45, 141.5]].every(([x, y]) => diskDark(P, H, x, y, 2) < 0.2);
+  const blankOk = G.blank.every(([x, y]) => diskDark(P, H, x, y, 2) < 0.2);
   if (best.mark < 0.4 || !markersOk || !blankOk) {
     return { ok: false, overlay: work, msg: 'Хуудасны байрлалыг баталгаатай тогтоож чадсангүй, тиймээс оноо тооцоогүй. Дөрвөн өнцгийн хар дөрвөлжин бүгд кадрт бүтэн орсон эсэхийг шалгаад дахин авна уу.', issues };
   }
+  // 'cam' sheets: the edge anchors straighten each band of rows on its own (curved or bent paper)
+  const HB = design === 'cam' ? camBands(P, H) : null;
+  const Hy = y => HB ? HB[y < CAM_AY[1] ? 0 : y < CAM_AY[2] ? 1 : 2] : H;
+  const dd = ([x, y]) => diskDark(P, Hy(y), x, y, rad), hp = ([x, y]) => hApply(Hy(y), x, y);
   const mcVals = [], idVals = [];
-  for (let i = 0; i < n; i++) { const row = []; for (let k = 0; k < ch; k++) row.push(diskDark(P, H, ...mcPos(i, k), rad)); mcVals.push(row); }
-  for (let c = 0; c < 4; c++) { const col = []; for (let d = 0; d < 10; d++) col.push(diskDark(P, H, ...idPos(c, d), rad)); idVals.push(col); }
-  const verVals = nVer(ex) > 1 ? ex.versions.map((_, j) => diskDark(P, H, ...verPos(j), rad)) : [];
+  for (let i = 0; i < n; i++) { const row = []; for (let k = 0; k < ch; k++) row.push(dd(G.mc(i, k, ch))); mcVals.push(row); }
+  for (let c = 0; c < 4; c++) { const col = []; for (let d = 0; d < 10; d++) col.push(dd(G.id(c, d))); idVals.push(col); }
+  const verVals = nVer(ex) > 1 ? ex.versions.map((_, j) => dd(G.ver(j))) : [];
   const all = mcVals.flat().concat(idVals.flat(), verVals).sort((a, b) => a - b);
   const med = all[Math.floor(all.length / 2)] || 0;
   const thr = Math.min(0.5, Math.max(0.2, med + 0.18));
@@ -2126,13 +2212,13 @@ function scanSheet(bmp, ex) {
   const lw = Math.max(2, P.w / 500);
   ctx.lineWidth = lw; ctx.strokeStyle = '#2f56c8';
   ctx.beginPath(); best.dst.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.stroke();
-  const pxR = Math.hypot(hApply(H, 100 + BUB_R, 100)[0] - hApply(H, 100, 100)[0], hApply(H, 100 + BUB_R, 100)[1] - hApply(H, 100, 100)[1]);
+  const pxR = Math.hypot(hApply(H, 100 + G.r, 100)[0] - hApply(H, 100, 100)[0], hApply(H, 100 + G.r, 100)[1] - hApply(H, 100, 100)[1]);
   for (let i = 0; i < n; i++) {
     const key = kArr[i];
     for (let k = 0; k < ch; k++) {
       const L = LET[k], chosen = answers[i] === L || (answers[i] === '*' && mcVals[i][k] >= thr);
       if (!chosen && L !== key) continue;
-      const [x, y] = hApply(H, ...mcPos(i, k));
+      const [x, y] = hp(G.mc(i, k, ch));
       ctx.beginPath(); ctx.arc(x, y, pxR * 1.3, 0, Math.PI * 2);
       ctx.strokeStyle = answers[i] === '*' && chosen ? '#d98a00' : chosen ? (L === key ? '#1d9a5b' : '#d8342c') : 'rgba(29,154,91,0.7)';
       ctx.setLineDash(chosen ? [] : [lw * 2, lw * 2]); ctx.stroke(); ctx.setLineDash([]);
@@ -2140,17 +2226,17 @@ function scanSheet(bmp, ex) {
   }
   idDec.forEach((d, ci) => {
     if (d.v < 0) return;
-    const [x, y] = hApply(H, ...idPos(ci, d.v));
+    const [x, y] = hp(G.id(ci, d.v));
     ctx.beginPath(); ctx.arc(x, y, pxR * 1.3, 0, Math.PI * 2); ctx.strokeStyle = '#2f56c8'; ctx.stroke();
   });
-  if (version) { const [x, y] = hApply(H, ...verPos(ex.versions.indexOf(version))); ctx.beginPath(); ctx.arc(x, y, pxR * 1.3, 0, Math.PI * 2); ctx.strokeStyle = '#2f56c8'; ctx.stroke(); }
+  if (version) { const [x, y] = hp(G.ver(ex.versions.indexOf(version))); ctx.beginPath(); ctx.arc(x, y, pxR * 1.3, 0, Math.PI * 2); ctx.strokeStyle = '#2f56c8'; ctx.stroke(); }
   let crop = null;
   if (wrPage(ex) === 1) {
     const full = toCanvas(bmp, 2800), k = full.width / work.width;
     const Hs = H.slice(); [0, 1, 2, 3, 4, 5].forEach(i => { Hs[i] *= k; });
-    crop = rectify(full, Hs, 12, WR_TOP - 4, 198, WR_BOTTOM + 2, 7);
+    crop = rectify(full, Hs, 12, G.wrTop - 4, 198, WR_BOTTOM + 2, 7);
   }
-  return { ok: true, answers, flags, code: codeOk ? code : '', codePartial: code, version, verFlag, overlay: work, crop, issues };
+  return { ok: true, answers, flags, code: codeOk ? code : '', codePartial: code, version, verFlag, overlay: work, crop, issues, design };
 }
 function rectify(src, H, x0, y0, x1, y1, ppm) {
   const W = Math.round((x1 - x0) * ppm), Hh = Math.round((y1 - y0) * ppm), sw = src.width, sh = src.height;
@@ -2230,7 +2316,7 @@ function pdfFromCanvases(pages) {
 }
 async function downloadSheets(fmtType) {
   const ex = exam(UI.sheet.examId); if (!ex) return;
-  await fontsReady();
+  await fontsReady(); await sheetFontsReady();
   const pages = sheetPages(ex);
   if (!pages.length) { toast('Энэ ангид идэвхтэй сурагч алга.', true); return; }
   const suffix = { blank: 'хоосон', named: 'сурагчдын нэртэй', filled: 'туршилтын (бөглөсөн)' }[UI.sheet.mode];
@@ -3231,6 +3317,8 @@ async function handleScanFile(file) {
   await new Promise(r => setTimeout(r, 30));
   try {
     const bmp = await loadBitmap(file);
+    // several sheets in one photo: read them all, like a batch
+    if (findSheets(prepare(toCanvas(bmp, 1600))).length > 1) { UI.scanBusy = false; try { bmp.close?.(); } catch {} batchScan([file]); return; }
     const res = scanSheet(bmp, ex);
     E = newEditor(ex, 'scan'); E.photo = file; E.overlay = res.overlay; E.issues = res.issues || [];
     // photo flow: same quiet save as live scan when nothing needs the teacher's look
@@ -3309,7 +3397,16 @@ async function commitEditor(next, force) {
   if (!ok) { refreshEditor(); return; }
   if (ex.status === 'draft' || ex.status === 'ready') { /* grading has started; keep teacher's status */ }
   toast(`Хадгаллаа: ${fullName(st)} — ${fmt(at.score.total)}/${fmt(at.score.max)} (${at.score.pct}%)`);
-  E = null; UI.confirm = null; render();
+  const bqId = E.bqItem;
+  E = null; UI.confirm = null;
+  if (bqId) {
+    const it = UI.bq?.items.find(x => x.id === bqId);
+    if (it) Object.assign(it, { status: 'saved', who: fullName(st), code: st.code, score: at.score, attemptId: at.id, note: '', photo: null, back: null });
+    const nx = next && bqNextItem(bqId);
+    if (nx) { openBatchItem(nx.id); return; }
+    render(); window.scrollTo(0, 0); return;
+  }
+  render();
   if (next) { if (UI.lastLive && liveSupported() && !liveBlocked()) openLive(); else $('#cam').click(); }
 }
 
@@ -3613,6 +3710,224 @@ async function liveSwitch() {
   renderLiveUi();
 }
 
+// =============== many sheets at once: several photos, a scanned PDF (copier, scanner app) or 2–6 sheets in one photo ===============
+// Sheets that need nothing from the teacher are saved as in the photo flow; the rest wait in a list and open one after another.
+const BQ_MAX = 6;
+function inQuad(pts, x, y) {
+  let s = 0;
+  for (let i = 0; i < 4; i++) {
+    const p = pts[i], q = pts[(i + 1) % 4], c = Math.sign((q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]));
+    if (!c) continue; if (s && c !== s) return false; s = c;
+  }
+  return true;
+}
+// a candidate outline that really is a sheet: nearly a parallelogram, orientation square in place, known blank spots blank
+function sheetFitOk(P, pts) {
+  const L = i => Math.hypot(pts[(i + 1) % 4][0] - pts[i][0], pts[(i + 1) % 4][1] - pts[i][1]);
+  if (Math.max(L(0), L(2)) / Math.min(L(0), L(2)) > 1.5 || Math.max(L(1), L(3)) / Math.min(L(1), L(3)) > 1.5) return false;
+  let area = 0; for (let i = 0; i < 4; i++) { const p = pts[i], q = pts[(i + 1) % 4]; area += p[0] * q[1] - q[0] * p[1]; }
+  if (Math.abs(area) / 2 < 0.8 * (L(0) + L(2)) / 2 * (L(1) + L(3)) / 2) return false; // corners near right angles
+  const f = orientFit(P, pts); if (!f) return false;
+  if (diskDark(P, f.H, BACK_ID[0], BACK_ID[1], 2) > 0.45) return diskDark(P, f.H, 105, 40, 2) < 0.2; // page 2
+  const G = GEO[diskDark(P, f.H, CAM_ID[0], CAM_ID[1], 2) > 0.45 ? 'cam' : 'std'];
+  return G.blank.every(([x, y]) => diskDark(P, f.H, x, y, 2) < 0.2);
+}
+// every sheet in one picture. Corner markers are the largest square blobs (filled bubbles and the small squares are far
+// smaller); smallest outlines first, since four markers of different sheets make an outline larger than the sheets
+function findSheets(P) {
+  let pool = markerComps(components(P), P.w, P.h).slice(0, 24);
+  if (!pool.length) return [];
+  const ref = pool[Math.min(3, pool.length - 1)].area; pool = pool.filter(o => o.area >= ref * 0.3);
+  const out = [], used = new Set();
+  for (const q of quadCands(pool).sort((a, b) => a.poly - b.poly)) {
+    if (out.length >= BQ_MAX) break;
+    if (q.comps.some(o => used.has(o))) continue;
+    const mx = q.pts.reduce((a, p) => a + p[0], 0) / 4, my = q.pts.reduce((a, p) => a + p[1], 0) / 4;
+    if (out.some(o => inQuad(o.pts, mx, my) || inQuad(q.pts, o.mx, o.my))) continue;
+    if (!sheetFitOk(P, q.pts)) continue;
+    q.comps.forEach(o => used.add(o)); out.push({ pts: q.pts, mx, my, frac: q.poly / (P.w * P.h) });
+  }
+  return out;
+}
+function cropSheet(img, work, pts) {
+  const k = img.width / work.width, xs = pts.map(p => p[0] * k), ys = pts.map(p => p[1] * k);
+  const m = 0.05 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  const x0 = Math.max(0, Math.min(...xs) - m), y0 = Math.max(0, Math.min(...ys) - m), x1 = Math.min(img.width, Math.max(...xs) + m), y1 = Math.min(img.height, Math.max(...ys) + m);
+  const c = document.createElement('canvas'); c.width = Math.round(x1 - x0); c.height = Math.round(y1 - y0);
+  c.getContext('2d').drawImage(img, x0, y0, x1 - x0, y1 - y0, 0, 0, c.width, c.height);
+  return c;
+}
+async function pdfPages(f) {
+  const lib = await loadPdfJs(), doc = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise;
+  return Array.from({ length: Math.min(doc.numPages, 300) }, (_, i) => ({ name: `${f.name} · ${i + 1}-р хуудас`, get: async () => {
+    const pg = await doc.getPage(i + 1), v1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(4, 2400 / Math.max(v1.width, v1.height)) });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+    await pg.render({ canvasContext: x, viewport: vp }).promise; try { pg.cleanup(); } catch {}
+    return c;
+  } }));
+}
+function bqReason(ex, res, dup) {
+  if (dup) return 'Энэ багцад ижил кодтой өөр хуудас байна';
+  if (!res.code) return 'Сурагчийн код бүрэн уншигдсангүй';
+  const st = S.students.find(x => x.code === res.code && (x.classId === ex.classId || !ex.classId)) || S.students.find(x => x.code === res.code);
+  if (!st) return `${res.code} код бүртгэлгүй байна`;
+  if (attemptsOf(ex.id).some(a => a.studentId === st.id)) return 'Энэ сурагчийн дүн өмнө хадгалагдсан';
+  if (nVer(ex) > 1 && (!res.version || res.verFlag)) return 'Хувилбар тодорхойгүй';
+  const fl = res.flags.filter(Boolean).length;
+  if (fl) return `${fl} асуултын хариулт эргэлзээтэй`;
+  if ((ex.written || []).length) return 'Задгай даалгаврын оноо оруулна';
+  if (!LV.auto) return '«Шууд хадгалах» унтраалттай';
+  return 'Шалгаж хадгална уу';
+}
+const bqStudent = code => code && S.students.find(x => x.code === code);
+async function bqOne(ex, Q, part, last) {
+  let res; try { res = scanSheet(part.img, ex); } catch { res = { ok: false, msg: 'Уншихад алдаа гарлаа.' }; }
+  if (res.back) {
+    // page 2 follows its page 1 in a duplex scan or in the order the photos were taken
+    if (last && wrPage(ex) === 2 && !last.back) { const c = scanBack(part.img); last.back = await toBlob(c || toCanvas(part.img, 2000)); last.backOk = !!c; return last; }
+    Q.items.push({ id: newId(), name: part.name, status: 'fail', note: wrPage(ex) === 2 ? 'Хосгүй 2-р нүүр: өмнө нь 1-р нүүр алга.' : 'Энэ шалгалтын хуудас 2-р нүүргүй.' });
+    return last;
+  }
+  const it = { id: newId(), name: part.name };
+  if (!res.ok) { Object.assign(it, { status: 'fail', note: res.msg, photo: await toBlob(toCanvas(part.img, 2400), 'image/jpeg', 0.88) }); Q.items.push(it); return last; }
+  const dup = !!res.code && Q.items.some(o => o.code === res.code && o.status !== 'fail');
+  const at = dup ? null : await liveAutoSave(ex, res);
+  it.code = res.code || res.codePartial;
+  if (at) Object.assign(it, { status: 'saved', who: at.name, score: at.score, attemptId: at.id });
+  else {
+    const st = bqStudent(res.code);
+    Object.assign(it, { status: 'review', who: st ? fullName(st) : '', note: bqReason(ex, res, dup), photo: await toBlob(toCanvas(part.img, 2400), 'image/jpeg', 0.88) });
+  }
+  Q.items.push(it); return it;
+}
+async function batchScan(files) {
+  const ex = exam(UI.gradeExamId); if (!ex || !files.length) return;
+  if (!ex.key.slice(0, ex.count).some(Boolean)) { toast('Эхлээд зөв хариултын түлхүүрээ оруулна уу.', true); return; }
+  if (UI.bq?.busy) { toast('Өмнөх хуудсууд уншигдаж байна. Түр хүлээнэ үү.', true); return; }
+  const Q = UI.bq?.examId === ex.id ? UI.bq : (UI.bq = { examId: ex.id, items: [] });
+  E = null; UI.confirm = null; Object.assign(Q, { busy: true, done: 0, total: 0, err: '' });
+  const n0 = Q.items.length, src = [];
+  for (const f of files) {
+    if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '')) { try { src.push(...await pdfPages(f)); } catch { Q.err = `«${f.name}» PDF файлыг нээж чадсангүй.`; } }
+    else if (/^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name || '')) src.push({ name: f.name || 'зураг', get: () => loadBitmap(f) });
+  }
+  Q.total = src.length; render(); window.scrollTo(0, 0);
+  let last = null;
+  for (const s of src) {
+    await new Promise(r => setTimeout(r, 0));
+    let img = null;
+    try {
+      img = await s.get();
+      const work = toCanvas(img, 1600), sheets = findSheets(prepare(work));
+      const parts = sheets.length > 1 ? sheets.sort((a, b) => Math.abs(a.my - b.my) > 0.3 * Math.hypot(a.pts[3][0] - a.pts[0][0], a.pts[3][1] - a.pts[0][1]) ? a.my - b.my : a.mx - b.mx).map((q, j) => ({ name: `${s.name} · ${j + 1}/${sheets.length}`, img: cropSheet(img, work, q.pts) })) : [{ name: s.name, img }];
+      for (const pt of parts) last = await bqOne(ex, Q, pt, last);
+    } catch { Q.items.push({ id: newId(), name: s.name, status: 'fail', note: 'Зургийг нээж чадсангүй.' }); }
+    try { img?.close?.(); } catch {}
+    Q.done++; bqRender();
+  }
+  Q.busy = false; render();
+  const add = Q.items.slice(n0), c = st => add.filter(x => x.status === st).length;
+  if (add.length) toast(`${add.length} хуудас уншлаа: ${c('saved')} хадгалсан, ${c('review')} шалгах${c('fail') ? `, ${c('fail')} уншигдаагүй` : ''}.`);
+  else if (!Q.err) toast('Уншиж болох зураг эсвэл PDF олдсонгүй.', true);
+}
+function bqRender() { const el = $('#bqCard'); if (el && UI.page === 'grade' && !E) { el.outerHTML = bqCard(exam(UI.bq?.examId)); icons(); } }
+const bqTodo = () => (UI.bq?.items || []).filter(x => x.status !== 'saved' && x.photo);
+function bqNextItem(afterId) {
+  const L = bqTodo(), i = L.findIndex(x => x.id === afterId);
+  return [...L.slice(i + 1), ...L.slice(0, Math.max(0, i))].find(x => x.id !== afterId) || null;
+}
+async function openBatchItem(id) {
+  const Q = UI.bq, it = Q?.items.find(x => x.id === id), ex = exam(Q?.examId); if (!it?.photo || !ex) return;
+  UI.gradeExamId = ex.id; UI.confirm = null; E = null; UI.scanBusy = true;
+  if (UI.page !== 'grade') { UI.page = 'grade'; }
+  render();
+  let ed = null;
+  try {
+    const bmp = await loadBitmap(it.photo), res = scanSheet(bmp, ex);
+    ed = newEditor(ex, 'scan'); ed.photo = it.photo; ed.overlay = res.overlay; ed.issues = res.issues || [];
+    if (res.ok) {
+      Object.assign(ed, { answers: res.answers, flags: res.flags, code: res.code || res.codePartial });
+      if (nVer(ex) > 1) { ed.version = res.version; ed.verFlag = res.verFlag; }
+      if (res.crop) { ed.crop = await toBlob(res.crop); ed.cropUrl = res.crop.toDataURL('image/jpeg', 0.85); }
+    } else ed.scanMsg = res.msg;
+  } catch { ed = newEditor(ex, 'scan'); ed.photo = it.photo; ed.scanMsg = 'Зургийг уншиж чадсангүй.'; }
+  if (it.back) { ed.back = it.back; ed.backUrl = URL.createObjectURL(it.back); ed.backMsg = it.backOk ? '' : 'Булангийн хар дөрвөлжин олдсонгүй. Зургийг тэгшлэлгүйгээр AI-д илгээнэ.'; }
+  ed.bqItem = it.id; E = ed; matchStudent(ex);
+  UI.scanBusy = false; render(); window.scrollTo(0, 0);
+  if (E === ed && Cap.sample && Cap.canImages && (ex.written || []).length && (ed.crop || ed.back)) gradeWritten();
+}
+function bqEdNote() {
+  const Q = UI.bq, it = Q?.items.find(x => x.id === E?.bqItem); if (!it) return '';
+  const left = bqTodo().filter(x => x.id !== it.id).length;
+  return `<div class="notice">${ic('files')}<div class="stack" style="gap:6px"><span><b>${esc(it.name)}</b>${it.note ? ' · ' + esc(it.note) : ''}</span>
+    <span class="small muted">Олон хуудасны жагсаалт: ${left ? `үүний дараа ${left} хуудас шалгана. «Хадгалаад дараагийнх» дарвал дараагийнх нь нээгдэнэ.` : 'шалгах сүүлийн хуудас.'}</span>
+    ${left ? `<div class="row"><button class="btn sm" data-act="bqSkip">${ic('skip-forward')}Алгасаад дараагийнх</button></div>` : ''}</div></div>`;
+}
+function bqCard(ex) {
+  const Q = UI.bq; if (!Q || !ex || Q.examId !== ex.id) return '';
+  const n = s => Q.items.filter(x => x.status === s).length, todo = bqTodo();
+  const pill = { saved: '<span class="pill ok">Хадгалсан</span>', review: '<span class="pill warn">Шалгах</span>', fail: '<span class="pill bad">Уншигдаагүй</span>' };
+  return `<div class="card" id="bqCard"><div class="spread"><h2>Олон хуудас нэг дор</h2>
+      ${Q.busy ? '' : `<div class="row"><button class="btn sm" data-act="openMany">${ic('plus')}Хуудас нэмэх</button><button class="btn sm" data-act="bqClear">${ic('x')}Жагсаалт хаах</button></div>`}</div>
+    ${Q.busy ? `<p class="notice"><span class="busy"></span><span>Уншиж байна: ${Q.done}/${Q.total} зураг…</span></p><div class="bar wide"><i style="width:${Q.total ? Math.round(Q.done / Q.total * 100) : 0}%"></i></div>` : ''}
+    ${Q.err ? `<p class="notice bad">${ic('triangle-alert')}<span>${esc(Q.err)}</span></p>` : ''}
+    <div class="row"><span class="pill ok">${n('saved')} хадгалсан</span><span class="pill warn">${n('review')} шалгах</span>${n('fail') ? `<span class="pill bad">${n('fail')} уншигдаагүй</span>` : ''}
+      ${!Q.busy && todo.length ? `<button class="btn primary" data-act="bqNext">${ic('list-checks')}Шалгах хуудсуудыг дарааллаар нээх (${todo.length})</button>` : ''}</div>
+    ${Q.items.length ? `<div class="tablebox" style="max-height:440px;overflow:auto"><table><thead><tr><th class="num">№</th><th>Сурагч</th><th>Төлөв</th><th class="num">Оноо</th><th></th></tr></thead><tbody>
+      ${Q.items.map((x, i) => `<tr><td class="num">${i + 1}</td>
+        <td><div class="stack" style="gap:2px"><span>${esc(x.who || '—')}${x.code ? ` <span class="mono small muted">${esc(x.code)}</span>` : ''}</span><span class="small muted">${esc(x.name)}${x.back ? ' · 2-р нүүртэй' : ''}</span></div></td>
+        <td class="wrapcell"><div class="stack" style="gap:2px;align-items:flex-start">${pill[x.status] || ''}${x.note ? `<span class="small muted">${esc(x.note)}</span>` : ''}</div></td>
+        <td class="num">${x.score ? `${fmt(x.score.total)}/${fmt(x.score.max)} · ${fmt(x.score.pct)}%` : '—'}</td>
+        <td class="num">${Q.busy ? '' : x.status !== 'saved' && x.photo ? `<button class="btn sm" data-act="bqOpen" data-id="${x.id}">${ic('pencil')}Нээх</button>` : x.attemptId ? `<button class="btn sm" data-act="editAttempt" data-id="${x.attemptId}" aria-label="Засах">${ic('pencil')}</button>` : ''}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+    <p class="small muted">Зургууд зөвхөн энэ төхөөрөмжийн санах ойд түр байна: хуудсыг дахин ачаалбал шалгаагүй хуудсуудын зургийг дахин сонгоно.</p></div>`;
+}
+
+// =============== moving data between the Claude version and the web version (a file, merged record by record) ===============
+const WEB_URL = 'https://joshzzdudes.github.io/EduScanMongolia/';
+function syncCard() {
+  const inClaude = !webAI();
+  return `<div class="card"><h2>Claude ба вэб хувилбарын хооронд шилжүүлэх</h2>
+    ${inClaude ? `<p>Утас, компьютер хооронд өгөгдлөө автоматаар синк хийхийн тулд EduScan-ийн <a href="${WEB_URL}" target="_blank" rel="noopener">вэб хувилбарыг</a> Google эсвэл имэйл бүртгэлээрээ нэвтэрч ашиглана. Claude доторх энэ хуудас гадны сервертэй холбогдох боломжгүй тул өгөгдлөө файлаар шилжүүлнэ.</p>
+      <ol class="tips"><li>Энд <b>«Шилжүүлэх файл татах»</b> дарна.</li><li>Вэб хувилбарыг нээж, өөрийн бүртгэлээр нэвтэрнэ.</li><li>Тэнд Тохиргоо → <b>«Файлаас нэгтгэх»</b> → татсан файлаа сонгоод <b>«Нэгтгэх»</b> дарна.</li></ol>`
+    : `<p>Claude дахь EduScan-д хадгалсан анги, сурагч, шалгалт, дүнгээ энэ бүртгэл рүү нэгтгэнэ. Эсрэгээр нь ч болно.</p>
+      <ol class="tips"><li>Claude дахь EduScan → Тохиргоо → <b>«Шилжүүлэх файл татах»</b>.</li><li>Энд <b>«Файлаас нэгтгэх»</b> → тэр файлаа сонгоод <b>«Нэгтгэх»</b> дарна.</li></ol>`}
+    <p class="small muted">«Нэгтгэх» нь аль талын өгөгдлийг ч устгахгүй: шинэ бичлэгийг нэмж, хоёр талд байгаа бичлэгээс сүүлд засварласныг нь үлдээнэ. Ижил нэртэй анги, ижил кодтой сурагчийг нэг гэж үзнэ. Файлд сурагчдын нэр, дүн байгаа тул шилжүүлсний дараа устгаарай.</p>
+    <div class="row"><button class="btn primary" data-act="backup">${ic('download')}Шилжүүлэх файл татах</button><button class="btn" data-act="restore">${ic('upload')}Файлаас нэгтгэх</button></div></div>`;
+}
+const nameKey = s => `${s?.last || ''} ${s?.first || ''}`.trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+// newest wins per record; classes matched by name and students by code, so the same class kept on both sides becomes one
+function mergeBackup(d) {
+  const n = { add: 0, upd: 0, same: 0, dup: 0, skip: 0 }, clsMap = {}, stuMap = {}, skipStu = new Set();
+  const put2 = (k, o) => {
+    const cur = S[k].find(x => x.id === o.id);
+    if (!cur) { put(k, o, true); n.add++; } else if ((+o.updatedAt || 0) > (+cur.updatedAt || 0)) { put(k, o, true); n.upd++; } else n.same++;
+  };
+  (d.classes || []).forEach(c => { if (!c?.id || S.classes.some(x => x.id === c.id)) return; const same = S.classes.find(x => String(x.name || '').trim().toLowerCase() === String(c.name || '').trim().toLowerCase()); if (same) clsMap[c.id] = same.id; });
+  (d.students || []).forEach(s => {
+    if (!s?.id || S.students.some(x => x.id === s.id)) return;
+    const same = S.students.find(x => x.code === s.code); if (!same) return;
+    if (nameKey(same) === nameKey(s)) stuMap[s.id] = same.id; else skipStu.add(s.id); // the code is taken by another student
+  });
+  (d.classes || []).forEach(c => { if (!c?.id) return; if (clsMap[c.id]) { n.dup++; return; } put2('classes', clone(c)); });
+  (d.students || []).forEach(s => {
+    if (!s?.id) return; if (stuMap[s.id] || skipStu.has(s.id)) { n[stuMap[s.id] ? 'dup' : 'skip']++; return; }
+    const o = clone(s); if (clsMap[o.classId]) o.classId = clsMap[o.classId]; put2('students', o);
+  });
+  (d.exams || []).forEach(x => { if (!x?.id) return; const o = clone(x); if (clsMap[o.classId]) o.classId = clsMap[o.classId]; put2('exams', o); });
+  (d.attempts || []).forEach(a => {
+    if (!a?.id) return; if (skipStu.has(a.studentId)) { n.skip++; return; }
+    const o = clone(a); if (stuMap[o.studentId]) o.studentId = stuMap[o.studentId];
+    // one result per student and exam: a result kept under another id here stays
+    if (S.attempts.some(x => x.id !== o.id && x.examId === o.examId && x.studentId === o.studentId)) { n.dup++; return; }
+    put2('attempts', o);
+  });
+  (d.settings || []).slice(0, 1).forEach(s => { if (s?.id) put2('settings', clone(s)); });
+  toast(`Нэгтгэлээ: ${n.add} шинэ, ${n.upd} шинэчилсэн, ${n.same} өөрчлөгдөөгүй${n.dup ? `, ${n.dup} давхардлыг нэг болгосон` : ''}${n.skip ? `, ${n.skip} бичлэг кодын зөрчилтэй тул алгассан` : ''}.`);
+  render();
+}
+
 // =============== example data ===============
 function rng(seed) { return () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }; }
 function addExample() {
@@ -3646,21 +3961,22 @@ function addExample() {
 }
 async function demoPhoto(ex, page = 1) {
   try { await document.fonts.load('40px Caveat'); } catch {}
-  const ppm = 6, sc = sheetCanvas(ex, ppm, { page }), ctx = sc.getContext('2d');
+  await sheetFontsReady();
+  const ppm = 6, sc = sheetCanvas(ex, ppm, { page }), ctx = sc.getContext('2d'), G = geoOf(ex);
   const st = studentsOf(ex.classId).find(s => s.active !== false) || S.students[0] || { code: '0001', last: 'Туршилт', first: 'Сурагч' };
   const R = rng(now() % 100000);
   const pen = (x, y) => { ctx.beginPath(); ctx.arc((x + (R() - 0.5) * 0.4) * ppm, (y + (R() - 0.5) * 0.4) * ppm, 2 * ppm, 0, Math.PI * 2); ctx.fillStyle = 'rgba(28,32,70,0.9)'; ctx.fill(); };
   if (page === 1) {
-    pad4(st.code).split('').forEach((d, c) => pen(...idPos(c, +d)));
+    pad4(st.code).split('').forEach((d, c) => pen(...G.id(c, +d)));
     const dv = nVer(ex) > 1 ? ex.versions[Math.floor(R() * ex.versions.length)] : '';
-    if (dv) pen(...verPos(ex.versions.indexOf(dv)));
+    if (dv) pen(...G.ver(ex.versions.indexOf(dv)));
     const dk = keyOf(ex, dv);
-    Array.from({ length: ex.count }, (_, i) => dk[i]).forEach((k, i) => { const pick = R() < 0.75 && k ? k : LET[Math.floor(R() * ex.choices)]; pen(...mcPos(i, LET.indexOf(pick))); });
+    Array.from({ length: ex.count }, (_, i) => dk[i]).forEach((k, i) => { const pick = R() < 0.75 && k ? k : LET[Math.floor(R() * ex.choices)]; pen(...G.mc(i, LET.indexOf(pick), ex.choices)); });
   }
   ctx.fillStyle = 'rgba(28,32,70,0.95)';
   ctx.font = `500 ${6 * ppm}px Caveat, cursive`; ctx.fillText(fullName(st), 32 * ppm, 34 * ppm);
   ctx.font = `500 ${4.4 * ppm}px Caveat, cursive`;
-  pad4(st.code).split('').forEach((d, c) => { const x = page === 1 ? idPos(c, 0)[0] : 172 + c * 7; ctx.fillText(d, (x - 1.3) * ppm, (page === 1 ? 52.4 : 35.4) * ppm); });
+  pad4(st.code).split('').forEach((d, c) => { const x = page === 1 ? G.id(c, 0)[0] : 172 + c * 7; ctx.fillText(d, (x - 1.3) * ppm, (page === 1 ? 52.4 : 35.4) * ppm); });
   const L = wrLayout(ex);
   const demoText = [['F = m · a', 'Хүч нь масс ба хурдатгалын үржвэртэй тэнцүү.', 'Нэгж нь Ньютон.'], ['a = F / m = 10 / 2', 'a = 5 м/с²']];
   if (L && L.page === page) {
@@ -3748,7 +4064,7 @@ function after() {
     const ex = exam(UI.sheet.examId); if (!ex) return;
     const [i, page] = c.dataset.prev.split(':').map(Number);
     const draw = () => { const ctx = c.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); drawSheet(ctx, c.width / 210, ex, { ...(sheetPages(ex)[i] || {}), page }); };
-    draw(); document.fonts?.ready.then(() => { if (c.isConnected) draw(); });
+    draw(); document.fonts?.ready.then(() => { if (c.isConnected) draw(); }); sheetFontsReady().then(() => { if (c.isConnected) draw(); });
   });
   const host = $('#edImg');
   if (host && E?.overlay) host.prepend(E.overlay);
@@ -4202,7 +4518,11 @@ function pSheets() {
       ${UI.sheet.mode === 'filled' ? '' : opt('self', 'Сурагч өөрөө будна' + (!wrPage(ex) ? '' : UI.sheet.mode === 'named' ? ' (бүх хувилбарын даалгавар хэвлэнэ)' : ' (даалгавар хувилбар бүрээр тусдаа)'), UI.sheet.v || 'self')}
       ${UI.sheet.mode === 'filled' ? '' : opt('alt', UI.sheet.mode === 'named' ? `Ээлжлэн: ${ex.versions.join(', ')}, …` : 'Хувилбар бүрээр нэг хуудас', UI.sheet.v)}
       ${ex.versions.map(v => opt(v, `${v} хувилбар (урьдчилж будсан)`, UI.sheet.mode === 'filled' && !ex.versions.includes(UI.sheet.v) ? ex.versions[0] : UI.sheet.v)).join('')}</select></label>` : ''}
+    <label class="field">Хуудасны загвар<select id="shDesign">${Object.entries(SHEET_DESIGNS).map(([k, l]) => opt(k, l, sheetOf(ex).design)).join('')}</select></label>
+    <label class="field">Үсгийн фонт<select id="shFont">${Object.entries(SHEET_FONTS).map(([k, [l]]) => opt(k, l, sheetOf(ex).font)).join('')}</select></label>
   </div>
+  ${sheetOf(ex).design === 'cam' ? `<p class="notice ok">${ic('camera')}<span><b>Камерт зориулсан загвар:</b> дугуй нь том, хоорондоо зайтай, үсэг нь баганын дээр бичигдсэн тул хоосон дугуй цайвар, будсан нь тод ялгарна. Хуудасны хоёр захын жижиг дөрвөлжингөөр мөр бүрийн байрлалыг дахин тааруулдаг тул хуудас бага зэрэг муруйсан, гараар барьсан ч зөв уншина.</span></p>` : ''}
+  <p class="small muted">Загвар, фонтыг шалгалт бүрт хадгална. Аль загвараар хэвлэснийг апп хуудаснаас өөрөө таньдаг тул өмнө хэвлэсэн хуудас уншигдсаар байна.</p>
   <p class="small muted">${ex.count} асуулт · ${ex.choices} сонголт${(ex.written || []).length ? ` · ${ex.written.length} задгай даалгавар${back ? ' (2-р нүүрт)' : ''}` : ''}. Хуудас 60 хүртэлх асуулт, 4 оронтой сурагчийн код, задгай даалгаврын бүтэн текст ба шугамтай хариултын зайтай.</p>
   ${back ? `<p class="notice">${ic('files')}<span>Задгай даалгавар олон тул хуудасны <b>ар талд (2-р нүүрт)</b> тусад нь хэвлэгдэнэ. ${split ? `PDF-д ${ex.versions.join(', ')} хувилбар тус бүрийн 1, 2-р нүүр дараалан орно (${pgs.length * 2} хуудас). Хувилбар бүрийн 2-р нүүрэнд зөвхөн тэр хувилбарын даалгавар байна. Хувилбар бүрийг шалгалтын материалынхаа тоогоор олшруулна.` : 'PDF-д сурагч бүрийн 1, 2-р нүүр дараалан орно.'}</span></p>` : ''}</div>
   <div class="sheetwrap">
@@ -4249,6 +4569,7 @@ function pGrade() {
     <span><span class="mono">${fmt(UI.photoRecent.total)}/${fmt(UI.photoRecent.max)} · ${fmt(UI.photoRecent.pct)}%</span> · хадгаллаа</span>
     <span class="small muted">Энэ удаад ${UI.photoCount} хуудас хадгалсан</span></div>
     <button class="btn primary big" data-act="openCam">${ic('camera')}Дараагийн хуудас</button></div>` : ''}
+  ${bqCard(ex)}
   <div class="capture">
     <div class="dropzone" id="drop">
       <h2>Камераар уншуулах</h2>
@@ -4263,12 +4584,13 @@ function pGrade() {
       ${!liveSupported() || liveBlocked() ? `<div class="row"><button class="btn big" data-act="openPick">${ic('image')}Зураг сонгох</button></div>`
       : `<p class="muted">Эсвэл утасны камераар зураг аваад уншуулна. Компьютер дээр зургаа энд чирч оруулж эсвэл сонгож болно.</p>
       <div class="row"><button class="btn ${liveSupported() ? '' : 'primary '}big" data-act="openCam">${ic('camera')}Камераар авах</button><button class="btn big" data-act="openPick">${ic('image')}Зураг сонгох</button></div>`}
+      <div class="bqcta"><button class="btn big" data-act="openMany">${ic('files')}Олон хуудас нэг дор</button><span class="small muted">Олон зураг, хувилагч эсвэл сканераар уншуулсан PDF-ийг нэг дор сонгоно, эсвэл ширээн дээр 2–4 хуудсыг давхцуулалгүй дэлгээд нэг зураг авна. Эргэлзээгүй хуудас өөрөө хадгалагдаж, бусдыг нь дараалан шалгана.</span></div>
       ${(ex.written || []).length ? '' : `<label class="row small" style="gap:8px;cursor:pointer"><input type="checkbox" id="lvAuto" ${LV.auto ? 'checked' : ''}> Код таарч, эргэлзээгүй бол шууд хадгалах</label>`}
       <button class="btn link" data-act="demoScan">${ic('sparkles')}Хэвлэлгүйгээр жишээ зургаар турших</button>
     </div>
     <div class="card"><h2>Сайн зураг авахын тулд</h2>
       <ul class="tips"><li>Хуудсыг хавтгай, гэрэлтэй гадаргуу дээр тавина.</li><li>Дөрвөн өнцгийн хар дөрвөлжин бүгд кадрт орсон байна.</li>
-        <li>Сүүдэр, гэрлийн ойлт багатай, дээрээс нь шууд авна.</li><li>Уншсаны дараа үр дүнг шалгаж баталгаажуулна. Эргэлзээтэй хариултыг шараар тэмдэглэнэ.</li>
+        <li>Сүүдэр, гэрлийн ойлт багатай, дээрээс нь шууд авна.</li><li>Уншсаны дараа үр дүнг шалгаж баталгаажуулна. Эргэлзээтэй хариултыг шараар тэмдэглэнэ.</li><li>Нэг зурагт хэд хэдэн хуудас авахдаа хуудас бүрийн дөрвөн булангийн тэмдэг бүтэн харагдана. Хоёр талт хуудсыг сканердахад 2-р нүүр нь 1-р нүүрийнхээ араас орвол өөрөө хосолно.</li>
         ${wrPage(ex) === 2 ? '<li>Энэ шалгалтын задгай даалгавар 2-р нүүрт байгаа. Эхлээд 1-р нүүрийг уншуулаад, дараа нь засах цонхонд 2-р нүүрийн зургийг нэмнэ.</li>' : ''}</ul>
       <p class="small muted">${liveSupported() ? '«Камераар авах» нь утасны камерын апп-ыг нээнэ. «Шууд скан» нь энэ хуудсан дотроо камерыг асаана. Анх удаа камерын зөвшөөрөл асууна.' : '«Камераар зураг авах» нь утасны камерын апп-ыг нээнэ. Зөвшөөрөл асуухгүй.'}</p></div>
   </div>
@@ -4296,6 +4618,7 @@ function edForm(ex) {
   const canAI = !!Cap.sample, busy = E.aiState === 'busy';
   const ch = ex.choices;
   return `
+  ${E.bqItem ? bqEdNote() : ''}
   ${E.scanMsg ? `<div class="notice bad">${ic('triangle-alert')}<div class="stack" style="gap:8px"><span>${esc(E.scanMsg)}</span>${canAI && Cap.canImages && E.photo ? `<div class="row"><button class="btn sm" data-act="aiRead" ${busy ? 'disabled' : ''}>${ic('sparkles')}AI-аар хуудсыг уншуулах</button></div>` : ''}</div></div>` : ''}
   ${E.issues?.length ? `<div class="notice warn">${ic('triangle-alert')}<span>Зургийн чанар: ${E.issues.map(esc).join(' ')}</span></div>` : ''}
   <div class="stack" style="gap:6px">
@@ -5060,8 +5383,9 @@ function profilePage() {
   <div class="card"><div class="mehead wrap"><span class="avatar xl">${esc(name.slice(0, 1).toUpperCase())}</span>
     <div class="stack" style="gap:3px;min-width:0;flex:1 1 220px"><b>${esc(name)}</b>
       <span class="small muted">${ic('mail')} ${esc(Cap.email)} · ${Cap.provider === 'google.com' ? 'Google-ээр' : 'имэйлээр'} нэвтэрсэн${pw ? (Cap.verified ? ' · <span class="pill ok">баталгаажсан</span>' : ' · <span class="pill warn">имэйл баталгаажаагүй</span>') : ''}</span>
-      <span class="small muted">Бүртгүүлсэн: ${dateTxt(Cap.created)}${settings().school ? ' · ' + esc(settings().school) : ''}</span></div>
-    <button class="btn" data-act="cloudOut">${ic('log-out')}Гарах</button></div>
+      <span class="small muted">Бүртгүүлсэн: ${dateTxt(Cap.created)}${settings().school ? ' · ' + esc(settings().school) : ''}</span>
+      <span class="small muted">Бүртгэлийн ID: <span class="mono" id="myUid">${esc(Cap.uid || '')}</span> <button class="btn link sm" data-act="copyText" data-target="#myUid">Хуулах</button>${Cap.admin ? ' · <span class="pill acc">Админ</span>' : ''}</span></div>
+    <div class="row">${Cap.admin ? `<button class="btn" data-go="admin">${ic('shield-check')}Бүртгэлүүд</button>` : ''}<button class="btn" data-act="cloudOut">${ic('log-out')}Гарах</button></div></div>
     ${pw && !Cap.verified ? `<p class="notice warn">${ic('mail-warning')}<span>${esc(Cap.email)} хаяг руу илгээсэн холбоосоор имэйлээ баталгаажуулна уу. Нууц үгээ мартсан үед сэргээхэд хэрэгтэй. <button class="btn link sm" data-act="authResend">Дахин илгээх</button></span></p>` : ''}</div>
   <div class="card"><h2>Мэдээлэл засах</h2>${profileForm(true)}</div>
   ${pw ? `<div class="card"><h2>Нууц үг солих</h2><form id="pwForm" class="stack" style="gap:10px" novalidate>
@@ -5147,9 +5471,15 @@ async function adminExport() {
 }
 
 // =============== what's new: shown once after an update, and on its own page ===============
-const APP_VER = '1.4.0', NEWS_LS = 'eduscan-news-seen';
+const APP_VER = '1.5.0', NEWS_LS = 'eduscan-news-seen';
 // newest first: [icon, title, what it does, page to open]
 const NEWS = [
+  { v: '1.5.0', date: '2026-10-29', items: [
+    ['camera', 'Камерт зориулсан хариултын хуудас', 'Дугуй нь том, хоорондоо зайтай, үсэг нь баганын дээр бичигдсэн, Times New Roman үсэгтэй шинэ загвар. Хуудасны хоёр захын жижиг тэмдгээр мөр бүрийг дахин тааруулдаг тул муруйсан хуудас ч зөв уншигдана. Хуучин загвар хэвээр, аль загвараар хэвлэснийг апп өөрөө таньна.', 'sheets'],
+    ['files', 'Олон хуудас нэг дор', 'Олон зураг, хувилагч эсвэл сканераар уншуулсан PDF-ийг нэг дор оруулна, эсвэл нэг зурагт 2–6 хуудас багтааж авна. Эргэлзээгүй хуудас өөрөө хадгалагдаж, бусдыг нь дараалан шалгана. Хоёр талт хуудсын 2-р нүүр өөрөө хосолно.', 'grade'],
+    ['arrow-left-right', 'Claude ба вэб хувилбарын хооронд шилжүүлэх', 'Claude дахь өгөгдлөө файлаар вэб хувилбарын бүртгэл рүү (эсвэл эсрэгээр) нэгтгэнэ. Аль талын өгөгдөл ч устахгүй, сүүлд засварласан нь үлдэнэ.', 'settings'],
+    ['id-card', 'Профайлд бүртгэлийн ID', 'Профайл хуудсанд бүртгэлийн ID харагдаж, хуулж болно. Админ эрх тохируулах, тусламж авахад хэрэглэнэ.', 'account'],
+  ] },
   { v: '1.4.0', date: '2026-10-29', items: [
     ['scale', 'Тууштай AI үнэлгээ', 'Задгай даалгаврыг шалгуур тус бүрээр үнэлж, нэг шалгалтын бүх хуудсанд нэг үнэлгээний заавар хэрэглэнэ. Ижил хариулт ижил оноо авна. Тайлангийн «Асуултын шинжилгээ»-нд AI-багшийн тохирол болон «Бүх хариултыг нэг дор тулгах» шалгалт нэмэгдлээ.', 'reports'],
     ['brain', 'Блүүмийн ангиллыг AI өөрөө хийнэ', 'Шалгалтын материалаа (Word, PDF, зураг) оруулах эсвэл текстээ буулгахад Claude асуулт бүрийн танин мэдэхүйн түвшинг тодорхойлно. Задгай даалгаврын түвшинг шалгалт хадгалахад өөрөө тогтооно.', 'exams'],
@@ -5223,7 +5553,8 @@ function pSettings() {
     <label class="field">Багшийн нэр<input type="text" id="stTeacher" value="${esc(st.teacher || Cap.name)}"></label>
     <label class="field">Анхдагч нэг асуултын оноо<input type="number" id="stPts" min="0.5" step="0.5" value="${st.defPoints}"></label>
     <label class="field">Анхдагч сонголтын тоо<select id="stCh">${[2, 3, 4, 5].map(v => opt(v, v, st.defChoices)).join('')}</select></label>
-    <label class="field">Хувилбарын тэмдэглэгээ<select id="stVlab">${opt('cyr', 'А, Б, В, Г', st.vlab || 'cyr')}${opt('lat', 'A, B, C, D', st.vlab || 'cyr')}</select></label></div></div>
+    <label class="field">Хувилбарын тэмдэглэгээ<select id="stVlab">${opt('cyr', 'А, Б, В, Г', st.vlab || 'cyr')}${opt('lat', 'A, B, C, D', st.vlab || 'cyr')}</select></label>
+    <label class="field">Шинэ шалгалтын хуудасны загвар<select id="stDesign">${opt('std', 'Стандарт', st.sheetDesign || 'std')}${opt('cam', 'Камерт зориулсан (Times New Roman)', st.sheetDesign || 'std')}</select></label></div></div>
   <div class="card"><h2>Үнэлгээний босго</h2><div class="fields">
     <label class="field">Амжилтын босго (%)<input type="number" id="stSucc" min="0" max="100" value="${st.thrSuccess}"></label>
     <label class="field">Чанарын босго (%)<input type="number" id="stQual" min="0" max="100" value="${st.thrQuality}"></label>
@@ -5239,6 +5570,7 @@ function pSettings() {
       : Cap.cloudAvail ? `<div class="row"><button class="btn primary" data-go="account">${ic('log-in')}Нэвтрэх / Бүртгүүлэх</button></div>` : ''}
     <p class="small muted">${S.exams.length} шалгалт · ${S.classes.length} анги · ${S.students.length} сурагч · ${S.attempts.length} үр дүн</p>
     <div class="row"><button class="btn" data-act="backup">${ic('download')}Нөөц файл татах (JSON)</button><button class="btn" data-act="restore">${ic('upload')}Нөөцөөс сэргээх</button></div></div>
+  ${syncCard()}
   ${lv8Card()}
   ${aiCard()}`;
 }
@@ -5263,6 +5595,7 @@ const A = {
     if (!(pts > 0)) { toast('Нэг асуултын оноо 0-ээс их байх ёстой.', true); return; }
     const ex = { id: newId(), name, subject: $('#nxSubject').value.trim(), classId: $('#nxClass').value, date: $('#nxDate').value || todayStr(), duration: '', count, choices: +$('#nxChoices').value, pointsEach: pts, points: [], penalty: 0, key: Array(count).fill(''), keyVersion: 1, status: 'draft', note: '',
       written: Array.from({ length: Math.min(MAX_WR, Math.max(0, wr)) }, () => ({ prompt: '', max: 2, rubric: '' })) };
+    ex.sheet = { design: settings().sheetDesign === 'cam' ? 'cam' : 'std' };
     const nv = +$('#nxVer').value || 1;
     if (nv > 1) { ex.vlab = $('#nxVlab')?.value === 'lat' ? 'lat' : 'cyr'; ex.versions = vlab(ex).slice(0, nv); normalizeKey(ex); }
     put('exams', ex); toast('Шалгалт үүслээ. Одоо түлхүүрээ оруулна уу.'); openExam(ex.id, 'key');
@@ -5375,6 +5708,11 @@ const A = {
   dlSheet: el => downloadSheets(el.dataset.fmt),
   openCam: () => $('#cam').click(),
   openPick: () => $('#pick').click(),
+  openMany: () => $('#pickMany').click(),
+  bqOpen: el => openBatchItem(el.dataset.id),
+  bqNext: () => { const nx = bqNextItem(null); if (nx) openBatchItem(nx.id); },
+  bqSkip: () => { const nx = bqNextItem(E?.bqItem); if (nx) openBatchItem(nx.id); },
+  bqClear: () => { UI.bq = null; render(); },
   openLive: () => openLive(),
   liveClose: () => closeLive(),
   liveAllow: () => liveStart(),
@@ -5475,7 +5813,7 @@ const A = {
     const st = clone(settings());
     const succ = +$('#stSucc').value, qual = +$('#stQual').value, supp = +$('#stSupp').value;
     if (!(succ >= 0 && succ <= 100 && qual >= 0 && qual <= 100 && supp >= 0 && supp <= 100)) { toast('Босго 0–100 хооронд байх ёстой.', true); return; }
-    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, vlab: $('#stVlab')?.value === 'lat' ? 'lat' : 'cyr', thrSuccess: succ, thrQuality: qual, thrSupport: supp });
+    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, vlab: $('#stVlab')?.value === 'lat' ? 'lat' : 'cyr', sheetDesign: $('#stDesign')?.value === 'cam' ? 'cam' : 'std', thrSuccess: succ, thrQuality: qual, thrSupport: supp });
     $$('[data-grade]').forEach(inp => { st.grades[+inp.dataset.grade][1] = Math.min(100, Math.max(0, +inp.value || 0)); });
     st.grades.sort((a, b) => b[1] - a[1]);
     S.settings = [st]; put('settings', st); toast('Тохиргоо хадгалагдлаа'); render();
@@ -5508,6 +5846,12 @@ document.addEventListener('click', ev => {
 document.addEventListener('change', async ev => {
   const t = ev.target;
   if (t.id === 'cam' || t.id === 'pick') { const f = t.files[0]; t.value = ''; if (f) handleScanFile(f); return; }
+  if (t.id === 'pickMany') { const f = [...(t.files || [])]; t.value = ''; if (f.length) batchScan(f); return; }
+  if (t.id === 'shDesign' || t.id === 'shFont') {
+    const x = clone(exam(UI.sheet.examId)); if (!x) return;
+    x.sheet = t.id === 'shDesign' ? { design: t.value === 'cam' ? 'cam' : 'std' } : { design: sheetOf(x).design, font: t.value };
+    put('exams', x); render(); return;
+  }
   if (UI.draft && t.dataset.cgw != null) { const w = UI.draft.data.written?.[+t.dataset.cgw]; if (w) { if (t.value) w.cog = t.value; else delete w.cog; markDirty(); } return; }
   if (UI.draft && t.dataset.cogfw != null) { const d = UI.draft.data; d.cog = { fw: t.value, ranges: {} }; (d.written || []).forEach(w => delete w.cog); markDirty(); render(); return; }
   if (t.dataset.bt != null && UI.batch) { const p = UI.batch.props[+t.dataset.bt]; if (p) p.on = t.checked; return; }
@@ -5523,8 +5867,9 @@ document.addEventListener('change', async ev => {
     const f = t.files[0]; t.value = ''; if (!f) return;
     try {
       const d = JSON.parse(await f.text()); if (d.app !== 'eduscan' || !d.data) throw 0;
-      UI.confirm = { danger: true, text: `Нөөцөөс ${d.data.exams?.length || 0} шалгалт, ${d.data.students?.length || 0} сурагч, ${d.data.attempts?.length || 0} үр дүн сэргээх үү? Ижил ID-тай өгөгдөл дарагдана.`, buttons: [{ label: 'Сэргээх', cls: 'primary', run: () => {
-        KINDS.forEach(k => (d.data[k] || []).forEach(o => put(k, o))); toast('Нөөцөөс сэргээлээ'); } }] };
+      UI.confirm = { text: `Файлд ${d.data.classes?.length || 0} анги, ${d.data.students?.length || 0} сурагч, ${d.data.exams?.length || 0} шалгалт, ${d.data.attempts?.length || 0} үр дүн байна. «Нэгтгэх» нь шинэ болон сүүлд засварласан бичлэгийг нэмж, энд байгаа өгөгдлийг устгахгүй. «Дарж сэргээх» нь ижил бичлэгийг файлынхаар солино.`, buttons: [
+        { label: 'Нэгтгэх', cls: 'primary', run: () => mergeBackup(d.data) },
+        { label: 'Дарж сэргээх', run: () => { KINDS.forEach(k => (d.data[k] || []).forEach(o => put(k, o))); toast('Нөөцөөс сэргээлээ'); } }] };
       render(); window.scrollTo(0, 0);
     } catch { toast('Энэ файл EduScan-ийн нөөц файл биш байна.', true); }
     return;
@@ -5616,7 +5961,7 @@ document.addEventListener('keydown', ev => {
 ['dragover', 'dragleave', 'drop'].forEach(type => document.addEventListener(type, ev => {
   const dz = ev.target.closest?.('#drop'); if (!dz) return;
   ev.preventDefault(); dz.classList.toggle('drag', type === 'dragover');
-  if (type === 'drop') { const f = [...(ev.dataTransfer?.files || [])].find(f => f.type.startsWith('image/')); if (f) handleScanFile(f); }
+  if (type === 'drop') { const fs = [...(ev.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/') || f.type === 'application/pdf' || /\.pdf$/i.test(f.name)); if (fs.length > 1 || fs.some(f => !f.type.startsWith('image/'))) batchScan(fs); else if (fs[0]) handleScanFile(fs[0]); }
 }));
 window.addEventListener('beforeunload', ev => { if (UI.draft?.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
 function icons() { try { window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } }); } catch {} }
