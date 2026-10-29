@@ -1745,11 +1745,11 @@ const wrHead = n => n ? 8.2 + n * WR_LH : 8;
 // stand above each column), alignment anchors on both edges so a curved or bent sheet is straightened band by band,
 // Times New Roman. A small square printed only on 'cam' sheets (bottom right) lets the scanner tell the designs apart,
 // so sheets printed earlier keep reading whatever the exam is set to now.
-const SHEET_DESIGNS = { std: 'Стандарт', cam: 'Камерт зориулсан' };
+const SHEET_DESIGNS = { std: 'Стандарт', cam: 'Камерт зориулсан', cie: 'Cambridge AS & A Level маягийн' };
 const SHEET_FONTS = { times: ['Times New Roman', '"Times New Roman", Tinos, "Liberation Serif", Times, serif'], golos: ['Golos Text', '"Golos Text", Arial, sans-serif'] };
 function sheetOf(ex) {
-  const design = ex?.sheet?.design === 'cam' ? 'cam' : 'std';
-  return { design, font: SHEET_FONTS[ex?.sheet?.font] ? ex.sheet.font : design === 'cam' ? 'times' : 'golos' };
+  const design = ['cam', 'cie'].includes(ex?.sheet?.design) ? ex.sheet.design : 'std';
+  return { design, font: SHEET_FONTS[ex?.sheet?.font] ? ex.sheet.font : design === 'std' ? 'golos' : 'times' };
 }
 const CAM_ID = [183, 283], CAM_R = 2.5, CAM_AX = [10, 200.5], CAM_AY = [50, 84, 118, 152], CAM_AS = 3;
 const camColX = c => 53 + c * 35.5, camPitch = ch => ch >= 5 ? 5.9 : 6.6;
@@ -1761,6 +1761,79 @@ const GEO = {
 const geoOf = ex => GEO[sheetOf(ex).design];
 const famOf = ex => SHEET_FONTS[sheetOf(ex).font][1];
 // Times New Roman is on most Windows and Mac computers; elsewhere the metric-compatible Tinos (with Cyrillic) is loaded
+// 'cie': laid out like a Cambridge AS & A Level multiple choice answer sheet, without Cambridge's name or logo: candidate
+// number and centre number, signature, instructions in Mongolian and English, lozenges, questions 1–40 in four columns of
+// ten with a gap after the fifth row, 41–60 in a second block. Edge marks straighten it band by band, as on 'cam'.
+const CIE_ID = [105, 289], CIE_AY = [103, 134, 166, 200, 231], CIE_RX = 2.7, CIE_RY = 1.35;
+const cieColX = c => 18 + c * 45, ciePitch = ch => ch >= 5 ? 7 : 8;
+const cieAY = ex => (+ex?.count || 0) > 40 ? CIE_AY : CIE_AY.slice(0, 3);
+GEO.cie = { r: CIE_RX, rx: CIE_RX, ry: CIE_RY, oval: true,
+  mc: (i, k, ch = 4) => { const b = i < 40 ? 0 : 1, j = i - b * 40, r = j % 10; return [cieColX(Math.floor(j / 10)) + 10.5 + k * ciePitch(ch), (b ? 174 : 108) + r * 5.4 + (r >= 5 ? 2.6 : 0)]; },
+  id: (col, d) => [146 + col * 12, 60 + d * 4.2], ver: j => [24 + j * 11, 67.5],
+  wrTop: ex => (+ex?.count || 0) > 40 ? 236 : 170, blank: [[105, 40], [140, 103.5], [115, 133.6]] };
+const wrTopOf = (G, ex) => typeof G.wrTop === 'function' ? G.wrTop(ex) : G.wrTop;
+// which design a photographed front page was printed with
+const designAt = (P, H) => diskDark(P, H, CIE_ID[0], CIE_ID[1], 2) > 0.45 ? 'cie' : diskDark(P, H, CAM_ID[0], CAM_ID[1], 2) > 0.45 ? 'cam' : 'std';
+function lozenge(ctx, x, y, label, filled, fam) {
+  ctx.beginPath(); ctx.ellipse(x, y, CIE_RX, CIE_RY, 0, 0, Math.PI * 2);
+  if (filled) { ctx.fillStyle = '#000'; ctx.fill(); return; }
+  ctx.lineWidth = 0.3; ctx.strokeStyle = '#444'; ctx.stroke();
+  ctx.fillStyle = '#c2c2c2'; ctx.font = `600 2px ${fam}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x, y + 0.1);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+function drawCie(ctx, ex, opt, st, F, FAM, MONO) {
+  const G = GEO.cie, ch = ex.choices || 4, fk = keyOf(ex, opt.version);
+  ctx.fillStyle = '#000'; ctx.fillRect(CIE_ID[0] - 3, CIE_ID[1] - 2.2, 6, 4.4);
+  CAM_AX.forEach(x => cieAY(ex).forEach(y => ctx.fillRect(x - CAM_AS / 2, y - CAM_AS / 2, CAM_AS, CAM_AS)));
+  const line = (x0, x1, y) => { ctx.strokeStyle = '#777'; ctx.lineWidth = 0.2; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke(); };
+  // candidate name, class
+  ctx.fillStyle = '#111'; ctx.font = F(2.7, 600); ctx.fillText('Овог, нэр / Candidate name', 16, 35);
+  const nx = 16 + ctx.measureText('Овог, нэр / Candidate name').width + 2; line(nx, 132, 35.6);
+  ctx.fillText('Анги / Class', 136, 35); const cx = 136 + ctx.measureText('Анги / Class').width + 2; line(cx, 196, 35.6);
+  if (st) {
+    ctx.font = F(3.5, 500); ctx.fillText(fitText(ctx, fullName(st), 132 - nx - 2), nx + 1.5, 34.6);
+    const sc = klass(st.classId); if (sc) ctx.fillText(fitText(ctx, sc.name, 196 - cx - 2), cx + 1.5, 34.6);
+  }
+  // centre number (written by hand, not read), signature
+  ctx.font = F(2.4, 600); ctx.fillStyle = '#111'; ctx.fillText('Сургуулийн дугаар / Centre number', 16, 44.5);
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 0.25; for (let j = 0; j < 5; j++) ctx.strokeRect(16 + j * 7, 46.5, 6, 7);
+  ctx.fillText('Гарын үсэг / Signature', 62, 44.5); line(62, 134, 53.5);
+  // candidate number: four boxes, a column of lozenges 0–9 under each
+  ctx.fillStyle = '#111'; ctx.font = F(2.4, 600); ctx.fillText('Сурагчийн код / Candidate number', 139, 44.5);
+  const digits = st ? pad4(st.code) : null;
+  for (let c = 0; c < 4; c++) {
+    const [x] = G.id(c, 0);
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 0.25; ctx.strokeRect(x - 4, 46.5, 8, 7);
+    if (digits) { ctx.fillStyle = '#111'; ctx.font = F(3.8, 600, MONO); ctx.textAlign = 'center'; ctx.fillText(digits[c], x, 51.6); ctx.textAlign = 'left'; }
+    for (let d = 0; d < 10; d++) { const [bx, by] = G.id(c, d); lozenge(ctx, bx, by, String(d), digits && +digits[c] === d, FAM); }
+  }
+  // version
+  if (nVer(ex) > 1) {
+    ctx.fillStyle = '#111'; ctx.font = F(2.4, 600); ctx.fillText(opt.version ? `Хувилбар / Version: ${opt.version}` : 'Хувилбар / Version', 16, 62.5);
+    ex.versions.forEach((v, j) => { const [bx, by] = G.ver(j); lozenge(ctx, bx, by, v, opt.version === v, FAM); });
+  }
+  // instructions
+  ctx.strokeStyle = '#888'; ctx.lineWidth = 0.25; ctx.strokeRect(16, 73, 118, 27.5);
+  ctx.fillStyle = '#111'; ctx.font = F(2.5, 700); ctx.fillText('ЗААВАР / INSTRUCTIONS', 18.5, 77.3);
+  ctx.font = F(2.15); ctx.fillStyle = '#333';
+  ['• Зөөлөн харандаа (B, HB) хэрэглэнэ. Use a soft pencil (B or HB).', '• Асуулт бүрт нэг гонзгой нүдийг бүрэн будна. Shade one lozenge for each question.',
+    '• Хариултаа солих бол бүрэн арилгана. Rub out completely any answer you wish to change.', '• Нугалах, үдэх, залруулагч хэрэглэхгүй. Do not fold, staple or use correction fluid.']
+    .forEach((t, k) => ctx.fillText(fitText(ctx, t, 113), 18.5, 81.2 + k * 3.8));
+  ctx.fillStyle = '#111'; ctx.font = F(2.3, 600); ctx.fillText('Зөв / Correct:', 18.5, 97.8); lozenge(ctx, 45, 97, 'A', true, FAM);
+  ctx.fillText('Буруу / Wrong:', 58, 97.8);
+  [[86, '✓'], [94, '✗'], [102, '•']].forEach(([x, m]) => { lozenge(ctx, x, 97, '', false, FAM); ctx.fillStyle = '#222'; ctx.font = F(2.6, 700); ctx.textAlign = 'center'; ctx.fillText(m, x, 97.9); ctx.textAlign = 'left'; });
+  // multiple choice
+  ctx.fillStyle = '#111'; ctx.font = F(2.7, 700); ctx.fillText('I хэсэг. Сонгох хариулт / Multiple choice', 16, 104.3);
+  for (let i = 0; i < ex.count; i++) {
+    const [bx0, y] = G.mc(i, 0, ch);
+    ctx.fillStyle = '#111'; ctx.font = F(3, 700, MONO); ctx.textAlign = 'right'; ctx.fillText(String(i + 1), bx0 - 5, y + 1.05); ctx.textAlign = 'left';
+    for (let k = 0; k < ch; k++) { const [bx, by] = G.mc(i, k, ch); lozenge(ctx, bx, by, LET[k], opt.fillKey && fk[i] === LET[k], FAM); }
+  }
+  writtenPart(ctx, ex, F, FAM, wrTopOf(G, ex), true);
+  ctx.fillStyle = '#666'; ctx.font = F(2.3); ctx.textAlign = 'center';
+  ctx.fillText('Гонзгой нүдийг бүрэн будна уу. Нэг асуултад нэг хариулт. Хар дөрвөлжин тэмдгүүд дээр юм бичиж болохгүй.', 105, 284);
+  ctx.textAlign = 'left';
+}
 let SFONTS = null;
 function sheetFontsReady() {
   if (!SFONTS) SFONTS = Promise.race([
@@ -1800,7 +1873,7 @@ function wrPage(ex) {
   if (ex._page) return ex._page;
   // the all-versions text decides, so every version's sheet prints on the same page
   const txt = (t, i) => nVer(ex) > 1 ? allVerText(ex, i) : t.prompt;
-  const free = WR_BOTTOM - geoOf(ex).wrTop - WR_GAP * (wr.length - 1) - wr.reduce((a, t, i) => a + wrHead(estLines(txt(t, i))), 0);
+  const free = WR_BOTTOM - wrTopOf(geoOf(ex), ex) - WR_GAP * (wr.length - 1) - wr.reduce((a, t, i) => a + wrHead(estLines(txt(t, i))), 0);
   return free / wr.length >= WR_MIN_FRONT ? 1 : 2;
 }
 // the exam as printed for one version: written task text swapped in, page choice kept from the whole exam
@@ -1810,7 +1883,7 @@ function exV(ex, v) {
 }
 function wrLayout(ex, ctx) {
   const wr = ex.written || []; if (!wr.length || !wrPage(ex)) return null;
-  const page = wrPage(ex), top = page === 1 ? geoOf(ex).wrTop : BACK_TOP, bottom = page === 1 ? WR_BOTTOM : BACK_BOTTOM;
+  const page = wrPage(ex), top = page === 1 ? wrTopOf(geoOf(ex), ex) : BACK_TOP, bottom = page === 1 ? WR_BOTTOM : BACK_BOTTOM;
   if (!ctx) ctx = MCTX || (MCTX = document.createElement('canvas').getContext('2d'));
   ctx.save(); ctx.font = wrFont(400, famOf(ex));
   const lines = wr.map(t => wrapText(ctx, t.prompt, WR_TEXT_W));
@@ -1870,6 +1943,7 @@ function drawSheet(ctx, p, ex, opt = {}) {
   ctx.textAlign = 'right'; ctx.font = F(2.9);
   ctx.fillText([ex.subject, cls?.name, ex.date].filter(Boolean).join(' · '), 196, 25.5); ctx.textAlign = 'left';
   if (back) { drawBack(ctx, ex, st, F, opt.version || opt.textV, MONO); ctx.restore(); return; }
+  if (sh.design === 'cie') { drawCie(ctx, ex, opt, st, F, FAM, MONO); ctx.restore(); return; }
   if (cam) {
     // design mark (bottom right) and the alignment anchors on both edges
     ctx.fillStyle = '#000'; ctx.fillRect(CAM_ID[0] - 3, CAM_ID[1] - 3, 6, 6);
@@ -1923,9 +1997,17 @@ function drawSheet(ctx, p, ex, opt = {}) {
     for (let k = 0; k < ch; k++) { const [bx, by] = G.mc(i, k, ch); B(bx, by, LET[k], opt.fillKey && fk[i] === LET[k]); }
   }
   // written section
-  const L = wrLayout(ex, ctx), w0 = G.wrTop;
+  writtenPart(ctx, ex, F, FAM, G.wrTop, cam);
+  ctx.fillStyle = '#666'; ctx.font = F(2.3); ctx.textAlign = 'center';
+  ctx.fillText(cam ? 'Дугуйг бүрэн будна уу. Нэг асуултад нэг хариулт. Хар дөрвөлжин тэмдгүүд дээр юм бичиж болохгүй.'
+    : 'Дугуйг бүрэн будна уу. Нэг асуултад нэг хариулт. Дөрвөн булангийн хар дөрвөлжинд юм бичиж болохгүй.', 105, 284);
+  ctx.restore();
+}
+// the written section of page 1: the tasks, a note that they are on page 2, or a note that they are on the exam paper
+function writtenPart(ctx, ex, F, FAM, w0, big) {
+  const L = wrLayout(ex, ctx);
   if (L && L.page === 1) {
-    ctx.fillStyle = '#111'; ctx.font = F(cam ? 2.8 : 2.5, 600); ctx.fillText('II хэсэг. Задгай даалгавар', 14, w0 - (cam ? 2.8 : 2.4));
+    ctx.fillStyle = '#111'; ctx.font = F(big ? 2.8 : 2.5, 600); ctx.fillText('II хэсэг. Задгай даалгавар', 14, w0 - (big ? 2.8 : 2.4));
     drawWritten(ctx, ex, L, F, FAM);
   } else if (L) {
     ctx.setLineDash([1.2, 1]); ctx.strokeStyle = '#999'; ctx.lineWidth = 0.25; ctx.strokeRect(14, w0 + 1, 182, 14); ctx.setLineDash([]);
@@ -1941,10 +2023,6 @@ function drawSheet(ctx, p, ex, opt = {}) {
     ctx.fillStyle = '#111'; ctx.font = F(2.5, 600); ctx.fillText('II хэсэг. Задгай даалгавар', 14, w0 + 4);
     ctx.font = F(2.5); ctx.fillStyle = '#555'; ctx.fillText(`Задгай ${ex.written.length} даалгаврыг шалгалтын материал дээр бодно. Энэ хуудсанд бичихгүй.`, 14, w0 + 9);
   }
-  ctx.fillStyle = '#666'; ctx.font = F(2.3); ctx.textAlign = 'center';
-  ctx.fillText(cam ? 'Дугуйг бүрэн будна уу. Нэг асуултад нэг хариулт. Хар дөрвөлжин тэмдгүүд дээр юм бичиж болохгүй.'
-    : 'Дугуйг бүрэн будна уу. Нэг асуултад нэг хариулт. Дөрвөн булангийн хар дөрвөлжинд юм бичиж болохгүй.', 105, 284);
-  ctx.restore();
 }
 // page 2: written tasks only, same corner markers so it can be photographed and straightened
 function drawBack(ctx, ex, st, F, v, MONO = '"JetBrains Mono", monospace') {
@@ -2104,6 +2182,18 @@ function diskDark(P, H, cx, cy, rad) {
   }
   return s / n;
 }
+// the same over an oval (the lozenges of the 'cie' design)
+function ovalDark(P, H, cx, cy, rx, ry) {
+  let s = 0, n = 0;
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+    if (dx * dx + dy * dy > 9.5) continue;
+    const [x, y] = hApply(H, cx + dx * rx / 3, cy + dy * ry / 3);
+    const xi = Math.round(x), yi = Math.round(y); n++;
+    if (xi < 0 || yi < 0 || xi >= P.w || yi >= P.h) continue;
+    s += Math.max(0, 1 - P.g[yi * P.w + xi] / Math.max(1, P.mean(xi, yi)));
+  }
+  return s / n;
+}
 // classify one row of bubble darkness values: blank / single / multiple / uncertain
 function decide(vals, thr) {
   const idx = vals.map((v, i) => [v, i]).sort((a, b) => b[0] - a[0]);
@@ -2126,10 +2216,10 @@ function anchorFind(P, H, x, y) {
   return hApply(H, x + sx / n, y + sy / n);
 }
 // one homography per band between two rows of anchors: a curved or bent sheet is straightened piece by piece
-function camBands(P, H) {
-  const at = CAM_AY.map(y => CAM_AX.map(x => anchorFind(P, H, x, y) || hApply(H, x, y)));
-  return [0, 1, 2].map(b => homography(
-    [[CAM_AX[0], CAM_AY[b]], [CAM_AX[1], CAM_AY[b]], [CAM_AX[1], CAM_AY[b + 1]], [CAM_AX[0], CAM_AY[b + 1]]],
+function edgeBands(P, H, AX, AY) {
+  const at = AY.map(y => AX.map(x => anchorFind(P, H, x, y) || hApply(H, x, y)));
+  return AY.slice(0, -1).map((_, b) => homography(
+    [[AX[0], AY[b]], [AX[1], AY[b]], [AX[1], AY[b + 1]], [AX[0], AY[b + 1]]],
     [at[b][0], at[b][1], at[b + 1][1], at[b + 1][0]]));
 }
 function scanSheet(bmp, ex) {
@@ -2156,8 +2246,8 @@ function scanSheet(bmp, ex) {
   if (best && diskDark(P, best.H, BACK_ID[0], BACK_ID[1], 2) > 0.45) {
     return { ok: false, back: true, overlay: work, msg: 'Энэ хариултын хуудасны 2-р нүүр байна. Эхлээд сонгох хариулттай 1-р нүүрийг уншуулна уу.', issues };
   }
-  // which design was printed: only the 'cam' sheet has a small square at the bottom right
-  const design = diskDark(P, best.H, CAM_ID[0], CAM_ID[1], 2) > 0.45 ? 'cam' : 'std', G = GEO[design];
+  // which design was printed: a small square at the bottom right ('cam') or bottom centre ('cie')
+  const design = designAt(P, best.H), G = GEO[design];
   const H = best.H, ch = ex.choices || 4, n = ex.count, rad = G.r * 0.6;
   // verify the fit: all four markers and the orientation square solid, known blank areas blank
   const markersOk = MARKERS.every(([x, y]) => diskDark(P, H, x, y, 4) > 0.5);
@@ -2166,9 +2256,9 @@ function scanSheet(bmp, ex) {
     return { ok: false, overlay: work, msg: 'Хуудасны байрлалыг баталгаатай тогтоож чадсангүй, тиймээс оноо тооцоогүй. Дөрвөн өнцгийн хар дөрвөлжин бүгд кадрт бүтэн орсон эсэхийг шалгаад дахин авна уу.', issues };
   }
   // 'cam' sheets: the edge anchors straighten each band of rows on its own (curved or bent paper)
-  const HB = design === 'cam' ? camBands(P, H) : null;
-  const Hy = y => HB ? HB[y < CAM_AY[1] ? 0 : y < CAM_AY[2] ? 1 : 2] : H;
-  const dd = ([x, y]) => diskDark(P, Hy(y), x, y, rad), hp = ([x, y]) => hApply(Hy(y), x, y);
+  const AY = design === 'cam' ? CAM_AY : design === 'cie' ? cieAY(ex) : null, HB = AY ? edgeBands(P, H, CAM_AX, AY) : null;
+  const Hy = y => { if (!HB) return H; let b = 0; while (b < HB.length - 1 && y >= AY[b + 1]) b++; return HB[b]; };
+  const dd = ([x, y]) => G.oval ? ovalDark(P, Hy(y), x, y, G.rx * 0.62, G.ry * 0.6) : diskDark(P, Hy(y), x, y, rad), hp = ([x, y]) => hApply(Hy(y), x, y);
   const mcVals = [], idVals = [];
   for (let i = 0; i < n; i++) { const row = []; for (let k = 0; k < ch; k++) row.push(dd(G.mc(i, k, ch))); mcVals.push(row); }
   for (let c = 0; c < 4; c++) { const col = []; for (let d = 0; d < 10; d++) col.push(dd(G.id(c, d))); idVals.push(col); }
@@ -2210,7 +2300,7 @@ function scanSheet(bmp, ex) {
   if (wrPage(ex) === 1) {
     const full = toCanvas(bmp, 2800), k = full.width / work.width;
     const Hs = H.slice(); [0, 1, 2, 3, 4, 5].forEach(i => { Hs[i] *= k; });
-    crop = rectify(full, Hs, 12, G.wrTop - 4, 198, WR_BOTTOM + 2, 7);
+    crop = rectify(full, Hs, 12, wrTopOf(G, ex) - 4, 198, WR_BOTTOM + 2, 7);
   }
   return { ok: true, answers, flags, code: codeOk ? code : '', codePartial: code, version, verFlag, overlay: work, crop, issues, design };
 }
@@ -3705,7 +3795,7 @@ function sheetFitOk(P, pts) {
   if (Math.abs(area) / 2 < 0.8 * (L(0) + L(2)) / 2 * (L(1) + L(3)) / 2) return false; // corners near right angles
   const f = orientFit(P, pts); if (!f) return false;
   if (diskDark(P, f.H, BACK_ID[0], BACK_ID[1], 2) > 0.45) return diskDark(P, f.H, 105, 40, 2) < 0.2; // page 2
-  const G = GEO[diskDark(P, f.H, CAM_ID[0], CAM_ID[1], 2) > 0.45 ? 'cam' : 'std'];
+  const G = GEO[designAt(P, f.H)];
   return G.blank.every(([x, y]) => diskDark(P, f.H, x, y, 2) < 0.2);
 }
 // every sheet in one picture. Corner markers are the largest square blobs (filled bubbles and the small squares are far
@@ -3941,7 +4031,7 @@ async function demoPhoto(ex, page = 1) {
   const ppm = 6, sc = sheetCanvas(ex, ppm, { page }), ctx = sc.getContext('2d'), G = geoOf(ex);
   const st = studentsOf(ex.classId).find(s => s.active !== false) || S.students[0] || { code: '0001', last: 'Туршилт', first: 'Сурагч' };
   const R = rng(now() % 100000);
-  const pen = (x, y) => { ctx.beginPath(); ctx.arc((x + (R() - 0.5) * 0.4) * ppm, (y + (R() - 0.5) * 0.4) * ppm, 2 * ppm, 0, Math.PI * 2); ctx.fillStyle = 'rgba(28,32,70,0.9)'; ctx.fill(); };
+  const pen = (x, y) => { ctx.beginPath(); const px = (x + (R() - 0.5) * 0.4) * ppm, py = (y + (R() - 0.5) * 0.3) * ppm; if (G.oval) ctx.ellipse(px, py, G.rx * 0.88 * ppm, G.ry * 0.9 * ppm, 0, 0, Math.PI * 2); else ctx.arc(px, py, 2 * ppm, 0, Math.PI * 2); ctx.fillStyle = 'rgba(28,32,70,0.9)'; ctx.fill(); };
   if (page === 1) {
     pad4(st.code).split('').forEach((d, c) => pen(...G.id(c, +d)));
     const dv = nVer(ex) > 1 ? ex.versions[Math.floor(R() * ex.versions.length)] : '';
@@ -4497,6 +4587,7 @@ function pSheets() {
     <label class="field">Хуудасны загвар<select id="shDesign">${Object.entries(SHEET_DESIGNS).map(([k, l]) => opt(k, l, sheetOf(ex).design)).join('')}</select></label>
     <label class="field">Үсгийн фонт<select id="shFont">${Object.entries(SHEET_FONTS).map(([k, [l]]) => opt(k, l, sheetOf(ex).font)).join('')}</select></label>
   </div>
+  ${sheetOf(ex).design === 'cie' ? `<p class="notice ok">${ic('graduation-cap')}<span><b>Cambridge AS & A Level маягийн загвар:</b> Cambridge-ийн олон сонголттой хариултын хуудастай ижил бүтэцтэй: сурагчийн код (Candidate number) ба 0–9 гонзгой нүд, сургуулийн дугаар (Centre number), гарын үсэг, монгол, англи заавар, A–D гонзгой нүд (lozenge), 1–40 асуулт аравтаар дөрвөн баганад${(+ex.count || 0) > 40 ? ', 41–60 нь доор нь' : ''}. Сурагчдыг Cambridge-ийн шалгалтын хуудсанд дасгахад тохиромжтой. Албан ёсны Cambridge хуудас биш: Cambridge-ийн нэр, логог хэвлэхгүй.</span></p>` : ''}
   ${sheetOf(ex).design === 'cam' ? `<p class="notice ok">${ic('camera')}<span><b>Камерт зориулсан загвар:</b> дугуй нь том, хоорондоо зайтай, үсэг нь баганын дээр бичигдсэн тул хоосон дугуй цайвар, будсан нь тод ялгарна. Хуудасны хоёр захын жижиг дөрвөлжингөөр мөр бүрийн байрлалыг дахин тааруулдаг тул хуудас бага зэрэг муруйсан, гараар барьсан ч зөв уншина.</span></p>` : ''}
   <p class="small muted">Загвар, фонтыг шалгалт бүрт хадгална. Аль загвараар хэвлэснийг апп хуудаснаас өөрөө таньдаг тул өмнө хэвлэсэн хуудас уншигдсаар байна.</p>
   <p class="small muted">${ex.count} асуулт · ${ex.choices} сонголт${(ex.written || []).length ? ` · ${ex.written.length} задгай даалгавар${back ? ' (2-р нүүрт)' : ''}` : ''}. Хуудас 60 хүртэлх асуулт, 4 оронтой сурагчийн код, задгай даалгаврын бүтэн текст ба шугамтай хариултын зайтай.</p>
@@ -5533,9 +5624,12 @@ async function adminExport() {
 }
 
 // =============== what's new: shown once after an update, and on its own page ===============
-const APP_VER = '1.6.0', NEWS_LS = 'eduscan-news-seen';
+const APP_VER = '1.7.0', NEWS_LS = 'eduscan-news-seen';
 // newest first: [icon, title, what it does, page to open]
 const NEWS = [
+  { v: '1.7.0', date: '2026-10-30', items: [
+    ['graduation-cap', 'Cambridge AS & A Level маягийн хариултын хуудас', 'Сурагчийн код (Candidate number), сургуулийн дугаар (Centre number), гарын үсэг, монгол, англи заавар, A–D гонзгой нүд, аравтаар бүлэглэсэн 40 асуулт (60 хүртэл). Сурагчдыг Cambridge-ийн шалгалтын хуудсанд дасгана. «Хариултын хуудас» хэсгийн «Хуудасны загвар»-аас сонгоно.', 'sheets'],
+  ] },
   { v: '1.6.0', date: '2026-10-30', items: [
     ['chart-column', 'Админд нэргүй нэгдсэн үзүүлэлт', 'Админ багш бүрийн шалгалтын хуудасны тоо, дундаж хувь, амжилт, чанар, түвшний тархалтыг харна. Сурагчийн нэр, хувь хүний дүн харагдахгүй, 5-аас цөөн хуудастай шалгалтын дундажийг илгээхгүй. Хуваалцахыг профайлдаа унтрааж болно.', 'account'],
     ['users', 'Claude хувилбарын бүртгэлүүд', 'Claude дотор EduScan-ийг ашиглаж буй багш нар Claude дахь «Бүртгэлүүд» хуудсанд харагдана. Энэ хуудсыг зөвхөн засварлах эрхтэй хүмүүс харна.', ''],
@@ -5620,7 +5714,7 @@ function pSettings() {
     <label class="field">Анхдагч нэг асуултын оноо<input type="number" id="stPts" min="0.5" step="0.5" value="${st.defPoints}"></label>
     <label class="field">Анхдагч сонголтын тоо<select id="stCh">${[2, 3, 4, 5].map(v => opt(v, v, st.defChoices)).join('')}</select></label>
     <label class="field">Хувилбарын тэмдэглэгээ<select id="stVlab">${opt('cyr', 'А, Б, В, Г', st.vlab || 'cyr')}${opt('lat', 'A, B, C, D', st.vlab || 'cyr')}</select></label>
-    <label class="field">Шинэ шалгалтын хуудасны загвар<select id="stDesign">${opt('std', 'Стандарт', st.sheetDesign || 'std')}${opt('cam', 'Камерт зориулсан (Times New Roman)', st.sheetDesign || 'std')}</select></label></div></div>
+    <label class="field">Шинэ шалгалтын хуудасны загвар<select id="stDesign">${opt('std', 'Стандарт', st.sheetDesign || 'std')}${opt('cam', 'Камерт зориулсан (Times New Roman)', st.sheetDesign || 'std')}${opt('cie', 'Cambridge AS & A Level маягийн', st.sheetDesign || 'std')}</select></label></div></div>
   <div class="card"><h2>Үнэлгээний босго</h2><div class="fields">
     <label class="field">Амжилтын босго (%)<input type="number" id="stSucc" min="0" max="100" value="${st.thrSuccess}"></label>
     <label class="field">Чанарын босго (%)<input type="number" id="stQual" min="0" max="100" value="${st.thrQuality}"></label>
@@ -5661,7 +5755,7 @@ const A = {
     if (!(pts > 0)) { toast('Нэг асуултын оноо 0-ээс их байх ёстой.', true); return; }
     const ex = { id: newId(), name, subject: $('#nxSubject').value.trim(), classId: $('#nxClass').value, date: $('#nxDate').value || todayStr(), duration: '', count, choices: +$('#nxChoices').value, pointsEach: pts, points: [], penalty: 0, key: Array(count).fill(''), keyVersion: 1, status: 'draft', note: '',
       written: Array.from({ length: Math.min(MAX_WR, Math.max(0, wr)) }, () => ({ prompt: '', max: 2, rubric: '' })) };
-    ex.sheet = { design: settings().sheetDesign === 'cam' ? 'cam' : 'std' };
+    ex.sheet = { design: SHEET_DESIGNS[settings().sheetDesign] ? settings().sheetDesign : 'std' };
     const nv = +$('#nxVer').value || 1;
     if (nv > 1) { ex.vlab = $('#nxVlab')?.value === 'lat' ? 'lat' : 'cyr'; ex.versions = vlab(ex).slice(0, nv); normalizeKey(ex); }
     put('exams', ex); toast('Шалгалт үүслээ. Одоо түлхүүрээ оруулна уу.'); openExam(ex.id, 'key');
@@ -5880,7 +5974,7 @@ const A = {
     const st = clone(settings());
     const succ = +$('#stSucc').value, qual = +$('#stQual').value, supp = +$('#stSupp').value;
     if (!(succ >= 0 && succ <= 100 && qual >= 0 && qual <= 100 && supp >= 0 && supp <= 100)) { toast('Босго 0–100 хооронд байх ёстой.', true); return; }
-    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, vlab: $('#stVlab')?.value === 'lat' ? 'lat' : 'cyr', sheetDesign: $('#stDesign')?.value === 'cam' ? 'cam' : 'std', thrSuccess: succ, thrQuality: qual, thrSupport: supp });
+    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, vlab: $('#stVlab')?.value === 'lat' ? 'lat' : 'cyr', sheetDesign: SHEET_DESIGNS[$('#stDesign')?.value] ? $('#stDesign').value : 'std', thrSuccess: succ, thrQuality: qual, thrSupport: supp });
     $$('[data-grade]').forEach(inp => { st.grades[+inp.dataset.grade][1] = Math.min(100, Math.max(0, +inp.value || 0)); });
     st.grades.sort((a, b) => b[1] - a[1]);
     S.settings = [st]; put('settings', st); toast('Тохиргоо хадгалагдлаа'); render();
@@ -5916,7 +6010,7 @@ document.addEventListener('change', async ev => {
   if (t.id === 'pickMany') { const f = [...(t.files || [])]; t.value = ''; if (f.length) batchScan(f); return; }
   if (t.id === 'shDesign' || t.id === 'shFont') {
     const x = clone(exam(UI.sheet.examId)); if (!x) return;
-    x.sheet = t.id === 'shDesign' ? { design: t.value === 'cam' ? 'cam' : 'std' } : { design: sheetOf(x).design, font: t.value };
+    x.sheet = t.id === 'shDesign' ? { design: SHEET_DESIGNS[t.value] ? t.value : 'std' } : { design: sheetOf(x).design, font: t.value };
     put('exams', x); render(); return;
   }
   if (UI.draft && t.dataset.cgw != null) { const w = UI.draft.data.written?.[+t.dataset.cgw]; if (w) { if (t.value) w.cog = t.value; else delete w.cog; markDirty(); } return; }
