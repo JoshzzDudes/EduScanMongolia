@@ -11,13 +11,15 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
-    // account profile shown to the administrator: name, e-mail, school, dates, counts
+    // account profile shown to the administrator: name, e-mail, school, dates, counts,
+    // and anonymous figures per exam (number of sheets, mean, levels; never students' names or individual results)
     match /profiles/{uid} {
       allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow list: if isAdmin();
       allow create, update: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['name', 'email', 'school', 'provider', 'verified', 'created', 'seen', 'counts', 'ver'])
-        && request.resource.data.email == request.auth.token.email;
+        && request.resource.data.keys().hasOnly(['name', 'email', 'school', 'provider', 'verified', 'created', 'seen', 'counts', 'ver', 'stats'])
+        && request.resource.data.email == request.auth.token.email
+        && (request.resource.data.get('stats', null) == null || (request.resource.data.stats is list && request.resource.data.stats.size() <= 40));
       allow delete: if signedIn() && request.auth.uid == uid;
     }
 

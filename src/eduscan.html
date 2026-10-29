@@ -254,6 +254,8 @@ label.btn.disabled { opacity: 0.6; pointer-events: none; }
 @media (max-width: 600px) { .newspop { right: 12px; left: 12px; bottom: 12px; width: auto; } .newslist li { grid-template-columns: 36px 1fr; } .newslist li > .btn { grid-column: 2; justify-self: start; } }
 .bqcta { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border-top: 1px dashed var(--line); padding-top: 12px; width: 100%; }
 #bqCard .bar.wide { height: 8px; }
+.lvlbar.sm { height: 20px; border-radius: 6px; }
+.lvlbar.sm span { font-size: 10.5px; min-width: 24px; }
 </style>
 <style>
 /* ===== Colorful theme layer: visuals only, no layout or content changes ===== */
@@ -5255,7 +5257,7 @@ function pAccount() {
       <label class="field"><span class="req">Имэйл</span><input type="email" id="auEmail" autocomplete="email" inputmode="email" placeholder="name@example.com"></label>
       ${t !== 'reset' ? `<label class="field"><span class="req">Нууц үг</span><input type="password" id="auPass" autocomplete="${t === 'up' ? 'new-password' : 'current-password'}" placeholder="${t === 'up' ? 'Хамгийн багадаа 6 тэмдэгт' : ''}"></label>` : ''}
       ${t === 'up' ? `<label class="field"><span class="req">Нууц үг давтах</span><input type="password" id="auPass2" autocomplete="new-password"></label>
-        <p class="small muted">${ic('shield-check')} Бүртгүүлснээр таны нэр, имэйл, сургууль, хэрэглээний тоо (шалгалт, сурагч, хуудасны тоо)-г EduScan-ийн админ харах боломжтой болно. Сурагчдын нэр, дүнг админ харахгүй.</p>` : ''}
+        <p class="small muted">${ic('shield-check')} Бүртгүүлснээр таны нэр, имэйл, сургууль, хэрэглээний тоо (шалгалт, сурагч, хуудасны тоо) болон шалгалт бүрийн нэргүй нэгдсэн үзүүлэлт (хуудасны тоо, дундаж хувь, түвшний тархалт)-ийг EduScan-ийн админ харах боломжтой болно. Сурагчдын нэр, хувь хүний дүнг админ харахгүй.</p>` : ''}
       <div id="authMsg">${msg ? `<p class="notice ${msg.bad ? 'bad' : 'ok'}">${ic(msg.bad ? 'triangle-alert' : 'circle-check')}<span>${esc(msg.text)}</span></p>` : ''}</div>
       <button class="btn primary" type="submit" id="authGo">${t === 'up' ? ic('user-plus') + 'Бүртгүүлэх' : t === 'reset' ? ic('send') + 'Сэргээх холбоос илгээх' : ic('log-in') + 'Нэвтрэх'}</button>
     </form>
@@ -5286,23 +5288,54 @@ async function authSubmit() {
   } catch (e) { if (t === 'up') { try { localStorage.removeItem(AUTH_LS); } catch {} } authNote(cloudErr(e), true); }
   if (btn) { btn.disabled = false; btn.querySelector('.busy')?.remove(); }
 }
-// profile for the administrator: written on start and, at most every few minutes, after changes
+// profile for the administrator: written on start and, at most every few minutes, after changes.
+// Web version: profiles/{uid} in Firestore. Claude version: profiles/{viewer id} in the artifact's store, readable only at
+// the Editor level (the db rules declared when the artifact is published). Never students' names or individual results:
+// besides the counts only anonymous figures per exam, and an exam with fewer than STATS_MIN graded sheets shows no average.
 let profileTimer = null, profileLast = '';
+const STATS_MIN = 5;
+const claudeAcc = () => !Cap.cloud && Cap.mode === 'db' && !!Cap.db && !!Cap.uid && !window.EDU_CLOUD;
+const shareStats = () => settings().shareStats !== false;
 function profileData() {
   const st = settings();
-  return { name: String(st.teacher || Cap.name || '').slice(0, 120), email: Cap.email || '', school: String(st.school || '').slice(0, 160), provider: Cap.provider || '', verified: !!Cap.verified,
+  return { name: String(st.teacher || (claudeAcc() ? '' : Cap.name) || '').slice(0, 120), email: Cap.email || '', school: String(st.school || '').slice(0, 160), provider: Cap.provider || '', verified: !!Cap.verified,
     created: Cap.created || 0, counts: { classes: S.classes.length, students: S.students.length, exams: S.exams.length, attempts: S.attempts.length }, ver: 1 };
 }
+// one row per exam with results: how many sheets, and for groups of STATS_MIN or more the mean, success, quality and levels
+function statsData() {
+  const out = [];
+  S.exams.filter(x => x.status !== 'archived' && attemptsOf(x.id).length).forEach(ex => {
+    let R = null; try { R = analyze(ex); } catch {} if (!R || !R.n) return;
+    const row = { name: String(ex.name || '').slice(0, 80), subject: String(ex.subject || '').slice(0, 40), cls: R.classes.map(c => c.name).join(', ').slice(0, 60), date: ex.date || '', n: R.n, q: ex.count, w: (ex.written || []).length };
+    if (R.n >= STATS_MIN) Object.assign(row, { mean: r1(R.mean), success: r1(R.success), quality: r1(R.quality), lv: { ext: R.lv.ext, sec: R.lv.sec, sup: R.lv.sup }, alpha: R.alpha == null ? null : Math.round(R.alpha * 100) / 100 });
+    out.push(row);
+  });
+  return out.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 40);
+}
 function syncProfile() {
-  if (!Cap.cloud || !window.EDU_CLOUD?.saveProfile) return;
-  const d = profileData(), j = JSON.stringify(d), key = 'eduscan-seen-' + Cap.uid;
+  const C = window.EDU_CLOUD, web = Cap.cloud && !!C?.saveProfile, cl = claudeAcc();
+  if (!web && !cl) return;
+  const d = profileData(), stats = shareStats() ? statsData() : null, j = JSON.stringify([d, stats]), key = 'eduscan-seen-' + Cap.uid;
   let seen = 0; try { seen = +localStorage.getItem(key) || 0; } catch {}
   if (j === profileLast && Date.now() - seen < 6 * 3600e3) return; // nothing new; refresh "last seen" a few times a day
   profileLast = j;
-  window.EDU_CLOUD.saveProfile({ ...d, seen: Date.now() }).then(() => { try { localStorage.setItem(key, String(Date.now())); } catch {} }).catch(() => { profileLast = ''; });
+  const done = () => { try { localStorage.setItem(key, String(Date.now())); } catch {} };
+  if (cl) {
+    // the Claude version has no sign-up date: the first record the teacher made stands in for it
+    const first = Math.min(...KINDS.flatMap(k => S[k].map(o => +o.createdAt || Infinity)));
+    Cap.db.doc('profiles/' + Cap.uid).set({ ...d, created: isFinite(first) ? first : Date.now(), stats, seen: Date.now() }).then(done).catch(() => { profileLast = ''; }); return;
+  }
+  // the figures go in a second write, so the profile itself is kept even where the database rules do not take them yet
+  C.saveProfile({ ...d, seen: Date.now() }).then(() => { done(); return C.saveProfile({ stats }).catch(() => {}); }).catch(() => { profileLast = ''; });
 }
-function profileSoon() { if (!Cap.cloud) return; clearTimeout(profileTimer); profileTimer = setTimeout(syncProfile, 20000); }
+function profileSoon() { if (!Cap.cloud && !claudeAcc()) return; clearTimeout(profileTimer); profileTimer = setTimeout(syncProfile, 20000); }
 async function accountsAfterBoot() {
+  if (claudeAcc()) {
+    // Claude version: editors of the artifact (its owner and those given edit access) see who uses it
+    syncProfile();
+    try { if (await Cap.user?.canEdit?.()) { Cap.admin = true; renderSide(); if (UI.page === 'admin') render(); } } catch {}
+    return;
+  }
   if (!Cap.cloud) return;
   // name and school typed when signing up go into the settings of the new account
   let stash = null; try { stash = JSON.parse(localStorage.getItem(AUTH_LS) || 'null'); localStorage.removeItem(AUTH_LS); } catch {}
@@ -5345,12 +5378,19 @@ function profileForm(withEmail) {
     <div class="row"><button class="btn primary" type="submit" id="pfGo">${ic('save')}Хадгалах</button></div>
     <p class="small muted" id="pfEmailNote">Нэр, сургууль тайлан, Excel, дүнгийн хуудсанд гарна.${withEmail ? ' Имэйл хаягаар нэвтэрдэг тул энд солих боломжгүй.' : ''}</p></form>`;
 }
+function privacyCard() {
+  const cl = claudeAcc();
+  return `<div class="card"><h2>Өгөгдөл ба нууцлал</h2><p class="small muted">Таны сурагчдын нэр, хувь хүний дүн зөвхөн танд харагдана. ${cl ? 'Энэ EduScan-ийг хуваалцсан эзэн болон засварлах эрхтэй хүмүүс таны Claude дахь нэр, EduScan-д бичсэн нэр, сургууль, анх болон сүүлд нээсэн огноо' : 'EduScan-ийн админ таны бүртгэлийн мэдээлэл (нэр, имэйл, сургууль, бүртгүүлсэн ба сүүлд орсон огноо'}, анги, сурагч, шалгалт, хуудасны тоо)-ийг харж, үйлчилгээг сайжруулахад ашиглана.</p>
+    <label class="row small" style="gap:8px;cursor:pointer;align-items:flex-start"><input type="checkbox" id="pfShare" ${shareStats() ? 'checked' : ''} style="margin-top:3px"><span>Шалгалт бүрийн нэргүй нэгдсэн үзүүлэлтийг (хуудасны тоо, дундаж хувь, амжилт, чанар, түвшний тархалт) админтай хуваалцах. ${STATS_MIN}-аас цөөн хуудастай шалгалтын дундажийг илгээхгүй. Сурагчийн нэр, хувь хүний дүн хэзээ ч илгээгдэхгүй.</span></label>
+    <div class="row"><button class="btn" data-act="backup">${ic('download')}Өгөгдлөө татах (JSON)</button></div></div>`;
+}
 function profilePage() {
   const name = meName() || 'Багш';
   if (!Cap.cloud) {
     return `<h1>Миний профайл</h1>
     <div class="card"><div class="mehead"><span class="avatar xl">${esc(name.slice(0, 1).toUpperCase())}</span><div class="stack" style="gap:2px"><b>${esc(name)}</b><span class="small muted">${Cap.mode === 'db' ? 'Өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана.' : 'Өгөгдөл энэ төхөөрөмжид хадгалагдана.'}</span></div></div></div>
-    <div class="card"><h2>Мэдээлэл засах</h2>${profileForm(false)}</div>`;
+    <div class="card"><h2>Мэдээлэл засах</h2>${profileForm(false)}</div>
+    ${claudeAcc() ? privacyCard() : ''}`;
   }
   const pw = Cap.provider === 'password';
   return `<h1>Миний профайл</h1>
@@ -5371,8 +5411,7 @@ function profilePage() {
       <div id="pwMsg"></div>
       <div class="row"><button class="btn" type="submit" id="pwGo">${ic('key-round')}Нууц үг солих</button></div></form></div>`
     : `<div class="card"><h2>Нууц үг</h2><p class="small muted">Google-ээр нэвтэрдэг тул нууц үгээ Google бүртгэлдээ удирдана.</p></div>`}
-  <div class="card"><h2>Өгөгдөл ба нууцлал</h2><p class="small muted">Таны сурагчдын нэр, дүн зөвхөн танд харагдана. EduScan-ийн админ таны бүртгэлийн мэдээлэл (нэр, имэйл, сургууль, бүртгүүлсэн ба сүүлд орсон огноо, шалгалт, сурагч, хуудасны тоо)-ийг харж, үйлчилгээг сайжруулахад ашиглана.</p>
-    <div class="row"><button class="btn" data-act="backup">${ic('download')}Өгөгдлөө татах (JSON)</button></div></div>`;
+  ${privacyCard()}`;
 }
 async function profileSave() {
   const name = ($('#pfName')?.value || '').trim(), school = ($('#pfSchool')?.value || '').trim();
@@ -5404,50 +5443,103 @@ async function pwChange() {
   }
   if (btn) btn.disabled = false;
 }
-// ---- administrator: everyone who has an account ----
+// ---- administrator: everyone who has an account, with anonymous figures per exam ----
 async function loadAdmin() {
   UI.adminBusy = true; UI.adminErr = '';
-  try { UI.adminList = await window.EDU_CLOUD.listProfiles(); }
-  catch (e) { UI.adminErr = e?.code === 'permission-denied' ? 'Бүртгэлийн жагсаалтыг харах эрх алга. Firestore-ийн дүрэм болон admins бичлэгийг шалгана уу.' : 'Жагсаалтыг ачаалж чадсангүй. Интернэтээ шалгана уу.'; }
+  try {
+    if (Cap.cloud) UI.adminList = await window.EDU_CLOUD.listProfiles();
+    else {
+      const s = await Cap.db.collection('profiles').get();
+      const list = s.docs.map(d => ({ ...clone(d.data() || {}), uid: d.id, claude: true }));
+      // names come from Claude's own directory at display time, never from the stored record
+      const ps = list.length && Cap.user?.profiles ? await Cap.user.profiles(list.map(p => p.uid)) : {};
+      list.forEach(p => { p.cname = ps[p.uid]?.name || ''; p.guest = !!ps[p.uid]?.guest; p.me = p.uid === Cap.uid; });
+      UI.adminList = list;
+    }
+  } catch (e) { UI.adminErr = e?.code === 'permission-denied' ? 'Бүртгэлийн жагсаалтыг харах эрх алга. Firestore-ийн дүрэм болон admins бичлэгийг шалгана уу.' : 'Жагсаалтыг ачаалж чадсангүй. Интернэтээ шалгана уу.'; }
   UI.adminBusy = false; if (UI.page === 'admin') render();
+}
+const adminName = p => p.name || p.cname || '—';
+// all shared exams together, weighted by the number of graded sheets
+function adminTotals(all) {
+  const rows = all.flatMap(p => (Array.isArray(p.stats) ? p.stats : []).filter(r => r.mean != null));
+  const n = rows.reduce((a, r) => a + (+r.n || 0), 0), w = k => n ? rows.reduce((a, r) => a + (+r[k] || 0) * (+r.n || 0), 0) / n : null;
+  const lv = rows.reduce((a, r) => ({ ext: a.ext + (+r.lv?.ext || 0), sec: a.sec + (+r.lv?.sec || 0), sup: a.sup + (+r.lv?.sup || 0) }), { ext: 0, sec: 0, sup: 0 });
+  const subj = {};
+  rows.forEach(r => { const k = r.subject || 'Хичээлгүй'; subj[k] = subj[k] || { n: 0, s: 0, e: 0 }; subj[k].n += +r.n || 0; subj[k].s += (+r.mean || 0) * (+r.n || 0); subj[k].e++; });
+  return { exams: rows.length, n, mean: w('mean'), success: w('success'), quality: w('quality'), lv, subj: Object.entries(subj).map(([k, v]) => ({ k, n: v.n, e: v.e, mean: v.n ? v.s / v.n : null })).sort((a, b) => b.n - a.n) };
+}
+function lvBar(lv, n) {
+  if (!n) return '';
+  return `<div class="lvlbar sm" title="${LEVEL_ORDER.map(k => `${LEVELS[k][0]} ${lv[k] || 0}`).join(', ')}">${LEVEL_ORDER.map(k => lv[k] ? `<span class="lvl-${k}" style="flex:${lv[k]}">${Math.round(lv[k] / n * 100)}%</span>` : '').join('')}</div>`;
+}
+function adminStatsRow(p) {
+  const rows = Array.isArray(p.stats) ? p.stats : [];
+  if (!rows.length) return `<p class="small muted">${p.stats === null ? 'Энэ багш нэргүй үзүүлэлтээ хуваалцахгүй байхаар тохируулсан.' : 'Нэргүй үзүүлэлт хараахан ирээгүй (дүнтэй шалгалт алга, эсвэл апп-ынхаа шинэ хувилбарыг нээгээгүй).'}</p>`;
+  return `<div class="tablebox"><table><thead><tr><th>Шалгалт</th><th>Хичээл</th><th>Анги</th><th>Огноо</th><th class="num">Хуудас</th><th class="num">Дундаж</th><th class="num">Амжилт</th><th class="num">Чанар</th><th style="min-width:160px">Түвшин</th><th class="num">α</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td class="wrapcell">${esc(r.name || '—')}</td><td>${esc(r.subject || '—')}</td><td>${esc(r.cls || '—')}</td><td class="mono small">${esc(r.date || '')}</td><td class="num">${+r.n || 0}</td>
+      ${r.mean == null ? `<td colspan="5" class="small muted">${STATS_MIN}-аас цөөн хуудас тул нэгдсэн үзүүлэлтийг харуулахгүй</td>` : `<td class="num"><b>${pctTxt(r.mean)}</b></td><td class="num">${pctTxt(r.success)}</td><td class="num">${pctTxt(r.quality)}</td><td>${lvBar(r.lv || {}, (r.lv?.ext || 0) + (r.lv?.sec || 0) + (r.lv?.sup || 0))}</td><td class="num">${r.alpha == null ? '—' : fmt2(r.alpha)}</td>`}</tr>`).join('')}
+  </tbody></table></div>`;
 }
 function pAdmin() {
   if (!Cap.admin) return pDashboard();
   if (!UI.adminList && !UI.adminBusy && !UI.adminErr) { loadAdmin(); }
-  const all = (UI.adminList || []).slice(), q = (UI.adminQ || '').trim().toLowerCase();
-  const list = (q ? all.filter(p => `${p.name} ${p.email} ${p.school}`.toLowerCase().includes(q)) : all).sort((a, b) => (b.seen || 0) - (a.seen || 0));
+  const inClaude = !Cap.cloud, all = (UI.adminList || []).slice(), q = (UI.adminQ || '').trim().toLowerCase();
+  const list = (q ? all.filter(p => `${p.name} ${p.cname || ''} ${p.email} ${p.school}`.toLowerCase().includes(q)) : all).sort((a, b) => (b.seen || 0) - (a.seen || 0));
   const sum = k => all.reduce((a, p) => a + (+p.counts?.[k] || 0), 0);
   const schools = new Set(all.map(p => String(p.school || '').trim().toLowerCase()).filter(Boolean));
-  const week = all.filter(p => p.seen && Date.now() - p.seen < 7 * 864e5).length;
-  return `<div class="spread"><div class="stack" style="gap:2px"><h1>Бүртгэлүүд</h1><p class="muted">EduScan-д бүртгүүлсэн багш нар. Энэ хуудас зөвхөн админд харагдана.</p></div>
+  const week = all.filter(p => p.seen && Date.now() - p.seen < 7 * 864e5).length, T = adminTotals(all), tn = T.lv.ext + T.lv.sec + T.lv.sup;
+  return `<div class="spread"><div class="stack" style="gap:2px"><h1>Бүртгэлүүд${inClaude ? ' · Claude хувилбар' : ''}</h1><p class="muted">${inClaude ? 'EduScan-ийг Claude дотор ашиглаж буй багш нар. Энэ хуудас зөвхөн засварлах эрхтэй хүмүүст (эзэн, Editor) харагдана.' : 'EduScan-ий вэб хувилбарт бүртгүүлсэн багш нар. Энэ хуудас зөвхөн админд харагдана.'}</p></div>
     <div class="row"><button class="btn" data-act="adminReload" ${UI.adminBusy ? 'disabled' : ''}>${UI.adminBusy ? '<span class="busy"></span>' : ic('refresh-cw')}Шинэчлэх</button><button class="btn" data-act="adminExport" ${all.length ? '' : 'disabled'}>${ic('file-spreadsheet')}Excel</button></div></div>
   ${UI.adminErr ? `<div class="notice bad">${ic('triangle-alert')}<span>${esc(UI.adminErr)}</span></div>` : ''}
   <div class="stats">
-    <div class="stat">${ic('users')}<span class="eyebrow">Бүртгэлтэй багш</span><b>${all.length}</b><span class="small muted">${week} нь сүүлийн 7 хоногт идэвхтэй</span></div>
+    <div class="stat">${ic('users')}<span class="eyebrow">Багш</span><b>${all.length}</b><span class="small muted">${week} нь сүүлийн 7 хоногт идэвхтэй</span></div>
     <div class="stat">${ic('school')}<span class="eyebrow">Сургууль</span><b>${schools.size}</b><span class="small muted">сургуулийн нэр бичсэн</span></div>
     <div class="stat">${ic('scan-line')}<span class="eyebrow">Засагдсан хуудас</span><b>${sum('attempts').toLocaleString('en-US')}</b><span class="small muted">${sum('exams')} шалгалт</span></div>
     <div class="stat">${ic('graduation-cap')}<span class="eyebrow">Сурагч</span><b>${sum('students').toLocaleString('en-US')}</b><span class="small muted">${sum('classes')} анги</span></div>
   </div>
+  <div class="card"><div class="spread"><h2>Нэргүй нэгдсэн үзүүлэлт</h2><span class="small muted">${T.exams} шалгалт · ${T.n.toLocaleString('en-US')} хуудас</span></div>
+    ${T.exams ? `<div class="stats">
+        <div class="stat"><span class="eyebrow">Дундаж гүйцэтгэл</span><b>${pctTxt(r1(T.mean))}</b><span class="small muted">хуудасны тоогоор жигнэсэн</span></div>
+        <div class="stat"><span class="eyebrow">Амжилт</span><b>${pctTxt(r1(T.success))}</b></div>
+        <div class="stat"><span class="eyebrow">Чанар</span><b>${pctTxt(r1(T.quality))}</b></div></div>
+      ${lvBar(T.lv, tn)}${tn ? `<div class="row small muted" style="gap:14px">${LEVEL_ORDER.map(k => `<span><i class="lvl-${k}" style="display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px"></i> ${LEVELS[k][0]}: ${T.lv[k]}</span>`).join('')}</div>` : ''}
+      ${T.subj.length > 1 ? `<div class="tablebox"><table><thead><tr><th>Хичээл</th><th class="num">Шалгалт</th><th class="num">Хуудас</th><th class="num">Дундаж</th></tr></thead><tbody>${T.subj.map(s => `<tr><td>${esc(s.k)}</td><td class="num">${s.e}</td><td class="num">${s.n}</td><td class="num">${pctTxt(r1(s.mean))}</td></tr>`).join('')}</tbody></table></div>` : ''}`
+      : `<p class="small muted">Нэгдсэн үзүүлэлт хараахан алга. Багш нар апп-ын шинэ хувилбарыг нээж, ${STATS_MIN}-аас доошгүй хуудастай шалгалт засмагц энд гарна.</p>`}
+    <p class="small muted">${ic('shield-check')} Сурагчдын нэр, хувь хүний дүн энд хэзээ ч харагдахгүй. Шалгалт бүрийн хуудасны тоо, дундаж хувь, амжилт, чанар, түвшний тархалт л ирнэ. ${STATS_MIN}-аас цөөн хуудастай шалгалтын дундажийг харуулахгүй. Багш хуваалцахаа профайлдаа унтрааж болно.</p></div>
   <div class="card"><div class="spread"><h2>Жагсаалт</h2><input type="search" id="adminQ" placeholder="Нэр, имэйл, сургууль хайх" value="${esc(UI.adminQ || '')}" aria-label="Бүртгэл хайх"></div>
-    ${UI.adminBusy && !UI.adminList ? '<p class="muted"><span class="busy"></span> Ачаалж байна…</p>' : list.length ? `<div class="tablebox"><table><thead><tr><th>Багш</th><th>Имэйл</th><th>Арга</th><th>Сургууль</th><th>Бүртгүүлсэн</th><th>Сүүлд орсон</th><th class="num">Анги</th><th class="num">Сурагч</th><th class="num">Шалгалт</th><th class="num">Хуудас</th></tr></thead><tbody>
-      ${list.map(p => `<tr><td class="name">${esc(p.name || '—')}</td><td class="mono small">${esc(p.email || '')}</td><td>${providerName(p.provider)}${p.provider === 'password' && !p.verified ? ' <span class="pill warn">баталгаажаагүй</span>' : ''}</td><td>${esc(p.school || '—')}</td>
-        <td class="mono small">${dateTxt(p.created)}</td><td class="small">${agoTxt(p.seen)}</td><td class="num">${+p.counts?.classes || 0}</td><td class="num">${+p.counts?.students || 0}</td><td class="num">${+p.counts?.exams || 0}</td><td class="num"><b>${+p.counts?.attempts || 0}</b></td></tr>`).join('')}
-    </tbody></table></div>` : `<p class="muted">${q ? 'Хайлтад тохирох бүртгэл алга.' : 'Одоогоор бүртгэл алга.'}</p>`}
-    <p class="small muted">${ic('shield-check')} Багшийн сурагчдын нэр, дүн энд харагдахгүй: тэдгээр нь зөвхөн тухайн багшид хадгалагдана. Бүртгэлийг идэвхгүй болгох, устгахыг Firebase Console → Authentication хэсгээс хийнэ.</p></div>`;
+    ${UI.adminBusy && !UI.adminList ? '<p class="muted"><span class="busy"></span> Ачаалж байна…</p>' : list.length ? `<div class="tablebox"><table><thead><tr><th>Багш</th><th>Сургууль</th><th>${inClaude ? 'Анх нээсэн' : 'Бүртгүүлсэн'}</th><th>Сүүлд орсон</th><th class="num">Анги</th><th class="num">Сурагч</th><th class="num">Шалгалт</th><th class="num">Хуудас</th><th></th></tr></thead><tbody>
+      ${list.map(p => { const open = UI.adminOpen === p.uid, ns = Array.isArray(p.stats) ? p.stats.length : 0;
+        return `<tr><td><div class="stack" style="gap:2px"><span class="name">${esc(adminName(p))}${p.me ? ' <span class="pill acc">та</span>' : ''}${p.guest ? ' <span class="pill">зочин</span>' : ''}</span>
+          ${p.claude ? (p.name && p.cname && p.cname !== p.name ? `<span class="small muted">Claude: ${esc(p.cname)}</span>` : '') : `<span class="small muted"><span class="mono">${esc(p.email || '')}</span> · ${providerName(p.provider)}${p.provider === 'password' && !p.verified ? ' <span class="pill warn">баталгаажаагүй</span>' : ''}</span>`}</div></td><td>${esc(p.school || '—')}</td>
+        <td class="mono small">${dateTxt(p.created)}</td><td class="small">${agoTxt(p.seen)}</td><td class="num">${+p.counts?.classes || 0}</td><td class="num">${+p.counts?.students || 0}</td><td class="num">${+p.counts?.exams || 0}</td><td class="num"><b>${+p.counts?.attempts || 0}</b></td>
+        <td class="num"><button class="btn sm" data-act="adminOpen" data-id="${esc(p.uid)}" aria-expanded="${open}">${ic(open ? 'chevron-up' : 'chart-column')}${ns ? `Үзүүлэлт (${ns})` : 'Үзүүлэлт'}</button></td></tr>
+        ${open ? `<tr class="tiprow"><td colspan="9">${adminStatsRow(p)}</td></tr>` : ''}`; }).join('')}
+    </tbody></table></div>` : `<p class="muted">${q ? 'Хайлтад тохирох бүртгэл алга.' : inClaude ? 'Одоогоор бүртгэл алга. Багш нар энэ EduScan-ийг Claude дотор нээмэгц энд гарна.' : 'Одоогоор бүртгэл алга.'}</p>`}
+    <p class="small muted">${inClaude ? `${ic('info')} Вэб хувилбарын бүртгэлүүдийг <a href="${WEB_URL}" target="_blank" rel="noopener">вэб хувилбарын</a> «Бүртгэлүүд» хуудаснаас харна. Claude дахь хуудас Firebase-тэй холбогддоггүй тул хоёр жагсаалт тусдаа. Багш нарт энэ хуудсыг «Contributor» эрхээр хуваалцвал тэд өөрийн өгөгдлөө хадгалж чадах ч энэ жагсаалтыг харахгүй.`
+      : `${ic('info')} Claude дотор EduScan-ийг ашиглаж буй багш нар Claude дахь EduScan-ийн «Бүртгэлүүд» хуудсанд тусдаа харагдана. Бүртгэлийг идэвхгүй болгох, устгахыг Firebase Console → Authentication хэсгээс хийнэ.`}</p></div>`;
 }
 async function adminExport() {
-  const rows = (UI.adminList || []).slice().sort((a, b) => (b.seen || 0) - (a.seen || 0)).map(p => ({ 'Багш': p.name || '', 'Имэйл': p.email || '', 'Арга': providerName(p.provider), 'Баталгаажсан': p.provider === 'password' ? (p.verified ? 'тийм' : 'үгүй') : '',
-    'Сургууль': p.school || '', 'Бүртгүүлсэн': dateTxt(p.created), 'Сүүлд орсон': dateTxt(p.seen), 'Анги': +p.counts?.classes || 0, 'Сурагч': +p.counts?.students || 0, 'Шалгалт': +p.counts?.exams || 0, 'Хуудас': +p.counts?.attempts || 0 }));
   if (!window.XLSX) { toast('Excel сан ачаалагдаагүй байна.', true); return; }
+  const all = (UI.adminList || []).slice().sort((a, b) => (b.seen || 0) - (a.seen || 0));
+  const rows = all.map(p => ({ 'Багш': adminName(p), 'Имэйл': p.email || '', 'Арга': p.claude ? 'Claude' : providerName(p.provider), 'Баталгаажсан': p.provider === 'password' ? (p.verified ? 'тийм' : 'үгүй') : '',
+    'Сургууль': p.school || '', 'Бүртгүүлсэн': dateTxt(p.created), 'Сүүлд орсон': dateTxt(p.seen), 'Анги': +p.counts?.classes || 0, 'Сурагч': +p.counts?.students || 0, 'Шалгалт': +p.counts?.exams || 0, 'Хуудас': +p.counts?.attempts || 0 }));
+  const ex = all.flatMap(p => (Array.isArray(p.stats) ? p.stats : []).map(r => ({ 'Багш': adminName(p), 'Сургууль': p.school || '', 'Шалгалт': r.name || '', 'Хичээл': r.subject || '', 'Анги': r.cls || '', 'Огноо': r.date || '', 'Хуудас': +r.n || 0,
+    'Дундаж %': r.mean ?? '', 'Амжилт %': r.success ?? '', 'Чанар %': r.quality ?? '', [LEVELS.ext[0]]: r.lv?.ext ?? '', [LEVELS.sec[0]]: r.lv?.sec ?? '', [LEVELS.sup[0]]: r.lv?.sup ?? '', 'α': r.alpha ?? '' })));
   const ws = XLSX.utils.json_to_sheet(rows); ws['!cols'] = [24, 30, 9, 12, 28, 12, 12, 7, 8, 8, 8].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Бүртгэлүүд');
+  if (ex.length) { const w2 = XLSX.utils.json_to_sheet(ex); w2['!cols'] = [22, 24, 30, 12, 12, 11, 8, 9, 9, 9, 10, 10, 10, 6].map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, w2, 'Нэргүй үзүүлэлт'); }
   await offerFile(`EduScan бүртгэлүүд ${todayStr()}.xlsx`, new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }
 
 // =============== what's new: shown once after an update, and on its own page ===============
-const APP_VER = '1.5.0', NEWS_LS = 'eduscan-news-seen';
+const APP_VER = '1.6.0', NEWS_LS = 'eduscan-news-seen';
 // newest first: [icon, title, what it does, page to open]
 const NEWS = [
+  { v: '1.6.0', date: '2026-10-30', items: [
+    ['chart-column', 'Админд нэргүй нэгдсэн үзүүлэлт', 'Админ багш бүрийн шалгалтын хуудасны тоо, дундаж хувь, амжилт, чанар, түвшний тархалтыг харна. Сурагчийн нэр, хувь хүний дүн харагдахгүй, 5-аас цөөн хуудастай шалгалтын дундажийг илгээхгүй. Хуваалцахыг профайлдаа унтрааж болно.', 'account'],
+    ['users', 'Claude хувилбарын бүртгэлүүд', 'Claude дотор EduScan-ийг ашиглаж буй багш нар Claude дахь «Бүртгэлүүд» хуудсанд харагдана. Энэ хуудсыг зөвхөн засварлах эрхтэй хүмүүс харна.', ''],
+  ] },
   { v: '1.5.0', date: '2026-10-29', items: [
     ['camera', 'Камерт зориулсан хариултын хуудас', 'Дугуй нь том, хоорондоо зайтай, үсэг нь баганын дээр бичигдсэн, Times New Roman үсэгтэй шинэ загвар. Хуудасны хоёр захын жижиг тэмдгээр мөр бүрийг дахин тааруулдаг тул муруйсан хуудас ч зөв уншигдана. Хуучин загвар хэвээр, аль загвараар хэвлэснийг апп өөрөө таньна.', 'sheets'],
     ['files', 'Олон хуудас нэг дор', 'Олон зураг, хувилагч эсвэл сканераар уншуулсан PDF-ийг нэг дор оруулна, эсвэл нэг зурагт 2–6 хуудас багтааж авна. Эргэлзээгүй хуудас өөрөө хадгалагдаж, бусдыг нь дараалан шалгана. Хоёр талт хуудсын 2-р нүүр өөрөө хосолно.', 'grade'],
@@ -5763,6 +5855,7 @@ const A = {
   authResend: async () => { try { await window.EDU_CLOUD.sendVerification(); toast('Баталгаажуулах имэйлийг дахин илгээлээ.'); } catch (e) { toast(cloudErr(e), true); } },
   adminReload: () => { UI.adminList = null; UI.adminErr = ''; loadAdmin(); render(); },
   adminExport: () => adminExport(),
+  adminOpen: el => { UI.adminOpen = UI.adminOpen === el.dataset.id ? null : el.dataset.id; render(); },
   aiSave: async () => {
     const typed = ($('#aiKey')?.value || '').trim(), key = typed || aiConf().key, model = $('#aiModel')?.value || aiModel().id;
     if (!key) { UI.aiNote = { bad: true, text: 'API түлхүүрээ оруулна уу.' }; render(); return; }
@@ -5834,6 +5927,10 @@ document.addEventListener('change', async ev => {
   if (UI.draft && t.dataset.cu) { curSet(UI.draft.data, t); return; }
   if (UI.draft && t.dataset.curp != null) { const d = UI.draft.data; d.cur = { ...(d.cur || {}), prog: t.value }; markDirty(); render(); return; }
   if (t.id === 'aiModel') { const c = aiConf(); if (c.key) { aiSetConf({ ...c, model: t.value }); aiApiInit(); UI.aiNote = { text: `${aiModel().name} сонгогдлоо.` }; render(); } return; }
+  if (t.id === 'pfShare') {
+    const st = clone(settings()); st.shareStats = t.checked; S.settings = [st]; put('settings', st); profileLast = ''; syncProfile();
+    toast(t.checked ? 'Нэргүй нэгдсэн үзүүлэлтийг админтай хуваалцана.' : 'Нэргүй үзүүлэлтийг хуваалцахаа болилоо. Өмнө илгээснийг арилгалаа.'); return;
+  }
   if (t.id === 'lvAuto') { LV.auto = t.checked; try { localStorage.setItem('eduscan-live-auto', t.checked ? '1' : '0'); } catch {} return; }
   if (t.id === 'camBack' || t.id === 'pickBack') { const f = t.files[0]; t.value = ''; if (f) handleBackFile(f); return; }
   if (t.id === 'importFile') { const f = t.files[0]; t.value = ''; if (f) parseImport(f); return; }
