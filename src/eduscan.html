@@ -201,7 +201,7 @@ td.num, th.num { text-align: right; }
   .side.open { transform: none; }
   .scrim.open { display: block; position: fixed; inset: 0; background: rgba(5,10,20,0.45); z-index: 45; }
   .burger { display: grid; }
-  .userchip span { display: none; }
+  .userchip span:not(.avatar) { display: none; }
   .userchip { padding: 4px; }
   .capture, .editor, .sheetwrap { grid-template-columns: minmax(0, 1fr); }
   .ed-img { position: static; }
@@ -219,6 +219,17 @@ td.num, th.num { text-align: right; }
 .btn.wide { width: 100%; justify-content: center; }
 .ordiv { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .ordiv::before, .ordiv::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+button.userchip { cursor: pointer; color: inherit; font: inherit; background: var(--surface); max-width: 240px; }
+button.userchip:hover { border-color: var(--primary); }
+.ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mebox { width: min(300px, calc(100vw - 32px)); }
+.mehead { display: flex; gap: 12px; align-items: center; padding: 8px; }
+.mehead.wrap { flex-wrap: wrap; padding: 0; }
+.mehow { display: flex; gap: 6px; align-items: center; padding: 0 10px 8px; margin: 0; border-bottom: 1px solid var(--line); }
+.mebox .meout { color: var(--bad); }
+.avatar.lg { width: 40px; height: 40px; font-size: 16px; flex: none; }
+input:disabled, select:disabled { opacity: 0.6; cursor: not-allowed; }
+.avatar.xl { width: 56px; height: 56px; font-size: 22px; flex: none; }
 </style>
 <style>
 /* ===== Colorful theme layer: visuals only, no layout or content changes ===== */
@@ -458,7 +469,8 @@ td.wrapcell textarea { width: 100%; box-sizing: border-box; min-height: 52px; fo
       <div class="top-right">
         <button class="iconbtn" data-act="toggleNotif" aria-label="Мэдэгдэл"><i data-lucide="bell" class="ic"></i><span class="badge" id="nbadge" hidden></span></button>
         <div class="notif" id="notif" hidden></div>
-        <div class="userchip" id="userchip"><span class="avatar">Б</span><span>Багш</span></div>
+        <button class="userchip" id="userchip" data-act="toggleMe" aria-label="Миний профайл" aria-haspopup="menu" aria-expanded="false"><span class="avatar">Б</span><span>Багш</span></button>
+        <div class="notif mebox" id="mebox" role="menu" hidden></div>
       </div>
     </div></header>
     <main class="view" id="view"><p class="muted">Ачаалж байна…</p></main>
@@ -2802,8 +2814,10 @@ function renderTop() {
   const box = $('#notif');
   box.hidden = !UI.notifOpen;
   if (UI.notifOpen) box.innerHTML = n.length ? n.map((x, i) => `<button data-act="notifGo" data-i="${i}">${ic(x.icon)}<span>${esc(x.text)}</span></button>`).join('') : '<p class="muted small" style="padding:12px">Шинэ мэдэгдэл алга.</p>';
-  const name = Cap.name || settings().teacher || 'Багш';
-  $('#userchip').innerHTML = `<span class="avatar">${esc(name.trim().slice(0, 1).toUpperCase())}</span><span>${esc(name)}</span>`;
+  const name = meName() || 'Багш', chip = $('#userchip');
+  chip.innerHTML = `<span class="avatar">${esc(name.slice(0, 1).toUpperCase())}</span><span class="ell">${esc(name)}</span>`;
+  chip.setAttribute('aria-expanded', UI.meOpen ? 'true' : 'false');
+  const me = $('#mebox'); me.hidden = !UI.meOpen; if (UI.meOpen) me.innerHTML = meMenu();
 }
 function globalResults(q) {
   q = q.trim().toLowerCase(); if (!q) return '';
@@ -2859,7 +2873,7 @@ function go(page, force) {
     UI.confirm = { text: 'Хадгалаагүй өөрчлөлт байна. Хадгалалгүй орхих уу?', buttons: [{ label: 'Орхих', cls: 'solid-danger', run: () => { UI.draft = null; go(page, true); } }] };
     render(); window.scrollTo(0, 0); return;
   }
-  UI.page = page; UI.confirm = null; UI.sideOpen = false; UI.notifOpen = false; UI.draft = null; UI.newExam = false; UI.newClass = false; UI.editStudent = null; UI.importRows = null;
+  UI.page = page; UI.confirm = null; UI.sideOpen = false; UI.notifOpen = false; UI.meOpen = false; UI.pfNote = null; UI.draft = null; UI.newExam = false; UI.newClass = false; UI.editStudent = null; UI.importRows = null;
   E = null; UI.sel.clear(); render(); window.scrollTo(0, 0);
 }
 function openExam(id, tab) { UI.examId = id; UI.examTab = tab || 'info'; go('exam'); if (UI.page === 'exam') { UI.examTab = tab || 'info'; render(); } }
@@ -4005,18 +4019,7 @@ const providerName = p => p === 'google.com' ? 'Google' : p === 'password' ? 'И
 const dateTxt = t => t ? new Date(t - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '—';
 const agoTxt = t => { if (!t) return '—'; const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? 'өнөөдөр' : d === 1 ? 'өчигдөр' : d < 31 ? `${d} хоногийн өмнө` : dateTxt(t); };
 function pAccount() {
-  if (!Cap.cloudAvail) return `<h1>Бүртгэл</h1><div class="card"><p class="muted">Энэ хувилбарт өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана. Тусдаа бүртгэл шаардлагагүй.</p></div>`;
-  if (Cap.cloud) {
-    const pw = Cap.provider === 'password';
-    return `<h1>Миний бүртгэл</h1>
-    <div class="card"><div class="stack" style="gap:6px">
-      <p><b>${esc(Cap.name || settings().teacher || '—')}</b></p>
-      <p class="muted">${ic('mail')} ${esc(Cap.email)} · ${Cap.provider === 'google.com' ? 'Google-ээр' : 'имэйлээр'} нэвтэрсэн${pw ? (Cap.verified ? ' · <span class="pill ok">баталгаажсан</span>' : ' · <span class="pill warn">имэйл баталгаажаагүй</span>') : ''}</p>
-      ${pw && !Cap.verified ? `<p class="notice warn">${ic('mail-warning')}<span>${esc(Cap.email)} хаяг руу илгээсэн холбоосоор имэйлээ баталгаажуулна уу. Нууц үгээ мартсан үед сэргээхэд хэрэгтэй. <button class="btn link sm" data-act="authResend">Дахин илгээх</button></span></p>` : ''}
-      <p class="small muted">Бүртгүүлсэн: ${dateTxt(Cap.created)} · Бүртгэлийн ID: <span class="mono">${esc(Cap.uid)}</span></p>
-      <div class="row"><button class="btn" data-act="cloudOut">${ic('log-out')}Гарах</button></div></div></div>
-    <div class="card"><h2>Нууцлал</h2><p class="small muted">Таны сурагчдын нэр, дүн зөвхөн танд харагдана. EduScan-ийн админ таны бүртгэлийн мэдээлэл (нэр, имэйл, сургууль, бүртгүүлсэн ба сүүлд орсон огноо, шалгалт, сурагч, хуудасны тоо)-ийг харж, үйлчилгээг сайжруулахад ашиглана.</p></div>`;
-  }
+  if (!Cap.cloudAvail || Cap.cloud) return profilePage();
   const t = UI.authTab || 'in', msg = UI.authMsg;
   const tabBtn = (k, l) => `<button type="button" role="tab" class="${t === k ? 'on' : ''}" data-act="authTab" data-t="${k}">${l}</button>`;
   return `<h1>${t === 'up' ? 'Бүртгүүлэх' : t === 'reset' ? 'Нууц үг сэргээх' : 'Нэвтрэх'}</h1>
@@ -4090,6 +4093,93 @@ async function accountsAfterBoot() {
   }
   syncProfile();
   try { if (await window.EDU_CLOUD.isAdmin?.()) { Cap.admin = true; renderSide(); if (UI.page === 'admin') render(); } } catch {}
+}
+// ---- own profile: a menu on the top-right chip, an editable page ----
+const meName = () => (settings().teacher || Cap.name || '').trim();
+function noteIn(id, text, bad) {
+  const box = $('#' + id); if (!box) return;
+  box.innerHTML = text ? `<p class="notice ${bad ? 'bad' : 'ok'}">${ic(bad ? 'triangle-alert' : 'circle-check')}<span>${esc(text)}</span></p>` : '';
+  icons();
+}
+function meMenu() {
+  const name = meName() || 'Багш', st = settings();
+  const how = Cap.cloud ? `${Cap.provider === 'google.com' ? 'Google' : 'Имэйл'} бүртгэлээр нэвтэрсэн` : Cap.mode === 'db' ? 'Claude бүртгэлээр хадгалагдана' : Cap.cloudAvail ? 'Нэвтрээгүй: өгөгдөл зөвхөн энэ төхөөрөмжид' : 'Өгөгдөл энэ төхөөрөмжид';
+  return `<div class="mehead"><span class="avatar lg">${esc(name.slice(0, 1).toUpperCase())}</span><div class="stack" style="gap:2px;min-width:0"><b class="ell">${esc(name)}</b>${Cap.email ? `<span class="small muted ell">${esc(Cap.email)}</span>` : ''}${st.school ? `<span class="small muted ell">${esc(st.school)}</span>` : ''}</div></div>
+    <p class="small muted mehow">${ic(Cap.cloud || Cap.mode === 'db' ? 'cloud' : 'hard-drive')}<span>${how}</span></p>
+    <button data-go="account">${ic(Cap.cloudAvail && !Cap.cloud ? 'log-in' : 'pencil')}<span>${Cap.cloudAvail && !Cap.cloud ? 'Нэвтрэх / Бүртгүүлэх' : 'Профайл харах, засах'}</span></button>
+    <button data-go="settings">${ic('settings')}<span>Тохиргоо</span></button>
+    ${Cap.admin ? `<button data-go="admin">${ic('shield-check')}<span>Бүртгэлүүд</span></button>` : ''}
+    ${Cap.cloud ? `<button data-act="cloudOut" class="meout">${ic('log-out')}<span>Гарах</span></button>` : ''}`;
+}
+function profileForm(withEmail) {
+  const st = settings();
+  return `<form id="profileForm" class="stack" style="gap:10px" novalidate>
+    <div class="fields">
+      <label class="field"><span class="req">Нэр</span><input type="text" id="pfName" autocomplete="name" maxlength="120" value="${esc(meName())}" placeholder="ж: Б. Болд"></label>
+      <label class="field">Сургууль<input type="text" id="pfSchool" autocomplete="organization" maxlength="160" value="${esc(st.school || '')}" placeholder="ж: 1-р сургууль"></label>
+      ${withEmail ? `<label class="field">Имэйл<input type="email" value="${esc(Cap.email)}" disabled aria-describedby="pfEmailNote"></label>` : ''}
+    </div>
+    <div id="pfMsg">${UI.pfNote ? `<p class="notice ok">${ic('circle-check')}<span>${esc(UI.pfNote)}</span></p>` : ''}</div>
+    <div class="row"><button class="btn primary" type="submit" id="pfGo">${ic('save')}Хадгалах</button></div>
+    <p class="small muted" id="pfEmailNote">Нэр, сургууль тайлан, Excel, дүнгийн хуудсанд гарна.${withEmail ? ' Имэйл хаягаар нэвтэрдэг тул энд солих боломжгүй.' : ''}</p></form>`;
+}
+function profilePage() {
+  const name = meName() || 'Багш';
+  if (!Cap.cloud) {
+    return `<h1>Миний профайл</h1>
+    <div class="card"><div class="mehead"><span class="avatar xl">${esc(name.slice(0, 1).toUpperCase())}</span><div class="stack" style="gap:2px"><b>${esc(name)}</b><span class="small muted">${Cap.mode === 'db' ? 'Өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана.' : 'Өгөгдөл энэ төхөөрөмжид хадгалагдана.'}</span></div></div></div>
+    <div class="card"><h2>Мэдээлэл засах</h2>${profileForm(false)}</div>`;
+  }
+  const pw = Cap.provider === 'password';
+  return `<h1>Миний профайл</h1>
+  <div class="card"><div class="mehead wrap"><span class="avatar xl">${esc(name.slice(0, 1).toUpperCase())}</span>
+    <div class="stack" style="gap:3px;min-width:0;flex:1 1 220px"><b>${esc(name)}</b>
+      <span class="small muted">${ic('mail')} ${esc(Cap.email)} · ${Cap.provider === 'google.com' ? 'Google-ээр' : 'имэйлээр'} нэвтэрсэн${pw ? (Cap.verified ? ' · <span class="pill ok">баталгаажсан</span>' : ' · <span class="pill warn">имэйл баталгаажаагүй</span>') : ''}</span>
+      <span class="small muted">Бүртгүүлсэн: ${dateTxt(Cap.created)}${settings().school ? ' · ' + esc(settings().school) : ''}</span></div>
+    <button class="btn" data-act="cloudOut">${ic('log-out')}Гарах</button></div>
+    ${pw && !Cap.verified ? `<p class="notice warn">${ic('mail-warning')}<span>${esc(Cap.email)} хаяг руу илгээсэн холбоосоор имэйлээ баталгаажуулна уу. Нууц үгээ мартсан үед сэргээхэд хэрэгтэй. <button class="btn link sm" data-act="authResend">Дахин илгээх</button></span></p>` : ''}</div>
+  <div class="card"><h2>Мэдээлэл засах</h2>${profileForm(true)}</div>
+  ${pw ? `<div class="card"><h2>Нууц үг солих</h2><form id="pwForm" class="stack" style="gap:10px" novalidate>
+      <input type="email" autocomplete="username" value="${esc(Cap.email)}" hidden>
+      <div class="fields">
+        <label class="field"><span class="req">Одоогийн нууц үг</span><input type="password" id="pwCur" autocomplete="current-password"></label>
+        <label class="field"><span class="req">Шинэ нууц үг</span><input type="password" id="pwNew" autocomplete="new-password" placeholder="Хамгийн багадаа 6 тэмдэгт"></label>
+        <label class="field"><span class="req">Шинэ нууц үг давтах</span><input type="password" id="pwNew2" autocomplete="new-password"></label></div>
+      <div id="pwMsg"></div>
+      <div class="row"><button class="btn" type="submit" id="pwGo">${ic('key-round')}Нууц үг солих</button></div></form></div>`
+    : `<div class="card"><h2>Нууц үг</h2><p class="small muted">Google-ээр нэвтэрдэг тул нууц үгээ Google бүртгэлдээ удирдана.</p></div>`}
+  <div class="card"><h2>Өгөгдөл ба нууцлал</h2><p class="small muted">Таны сурагчдын нэр, дүн зөвхөн танд харагдана. EduScan-ийн админ таны бүртгэлийн мэдээлэл (нэр, имэйл, сургууль, бүртгүүлсэн ба сүүлд орсон огноо, шалгалт, сурагч, хуудасны тоо)-ийг харж, үйлчилгээг сайжруулахад ашиглана.</p>
+    <div class="row"><button class="btn" data-act="backup">${ic('download')}Өгөгдлөө татах (JSON)</button></div></div>`;
+}
+async function profileSave() {
+  const name = ($('#pfName')?.value || '').trim(), school = ($('#pfSchool')?.value || '').trim();
+  if (!name) { noteIn('pfMsg', 'Нэрээ оруулна уу.', true); $('#pfName')?.focus(); return; }
+  const btn = $('#pfGo'); if (btn) btn.disabled = true; UI.pfNote = null;
+  try {
+    const st = clone(settings()); st.teacher = name; st.school = school; S.settings = [st];
+    await put('settings', st);
+    if (Cap.cloud && window.EDU_CLOUD?.updateName && name !== Cap.name) await window.EDU_CLOUD.updateName(name);
+    if (Cap.cloud) Cap.name = name;
+    profileLast = ''; syncProfile();
+    UI.pfNote = 'Профайл хадгалагдлаа.'; render();
+  } catch (e) { noteIn('pfMsg', e?.code ? cloudErr(e) : 'Хадгалж чадсангүй. Дахин оролдоно уу.', true); }
+  if (btn) btn.disabled = false;
+}
+async function pwChange() {
+  const cur = $('#pwCur')?.value || '', nw = $('#pwNew')?.value || '', nw2 = $('#pwNew2')?.value || '';
+  if (!cur) { noteIn('pwMsg', 'Одоогийн нууц үгээ оруулна уу.', true); $('#pwCur')?.focus(); return; }
+  if (nw.length < 6) { noteIn('pwMsg', 'Шинэ нууц үг хамгийн багадаа 6 тэмдэгт байх ёстой.', true); $('#pwNew')?.focus(); return; }
+  if (nw !== nw2) { noteIn('pwMsg', 'Давтан оруулсан шинэ нууц үг таарахгүй байна.', true); $('#pwNew2')?.focus(); return; }
+  if (nw === cur) { noteIn('pwMsg', 'Шинэ нууц үг одоогийнхоос өөр байх ёстой.', true); return; }
+  const btn = $('#pwGo'); if (btn) btn.disabled = true;
+  try {
+    await window.EDU_CLOUD.changePassword(cur, nw);
+    ['pwCur', 'pwNew', 'pwNew2'].forEach(id => { const el = $('#' + id); if (el) el.value = ''; });
+    noteIn('pwMsg', 'Нууц үг солигдлоо. Дараагийн удаа шинэ нууц үгээрээ нэвтэрнэ.');
+  } catch (e) {
+    noteIn('pwMsg', ['auth/invalid-credential', 'auth/wrong-password', 'auth/invalid-login-credentials'].includes(e?.code) ? 'Одоогийн нууц үг буруу байна.' : cloudErr(e), true);
+  }
+  if (btn) btn.disabled = false;
 }
 // ---- administrator: everyone who has an account ----
 async function loadAdmin() {
@@ -4172,7 +4262,8 @@ const A = {
   confirmNo: () => { UI.confirm = null; render(); },
   openSide: () => { UI.sideOpen = true; renderSide(); },
   closeSide: () => { UI.sideOpen = false; renderSide(); },
-  toggleNotif: () => { UI.notifOpen = !UI.notifOpen; renderTop(); try { window.lucide?.createIcons(); } catch {} },
+  toggleMe: () => { UI.meOpen = !UI.meOpen; UI.notifOpen = false; renderTop(); icons(); },
+  toggleNotif: () => { UI.notifOpen = !UI.notifOpen; UI.meOpen = false; renderTop(); try { window.lucide?.createIcons(); } catch {} },
   notifGo: el => { const n = notifications()[+el.dataset.i]; UI.notifOpen = false; n?.go(); },
   addExample: () => addExample(),
   newExam: () => { if (UI.page !== 'exams') go('exams'); UI.newExam = true; render(); $('#nxName')?.focus(); },
@@ -4404,7 +4495,8 @@ function markDirty() {
 // =============== events ===============
 document.addEventListener('click', ev => {
   if (!ev.target.closest('.gsearch')) $('#gdrop').hidden = true;
-  if (UI.notifOpen && !ev.target.closest('.notif, [data-act="toggleNotif"]')) { UI.notifOpen = false; renderTop(); }
+  if (UI.notifOpen && !ev.target.closest('#notif, [data-act="toggleNotif"]')) { UI.notifOpen = false; renderTop(); }
+  if (UI.meOpen && !ev.target.closest('#mebox, [data-act="toggleMe"]')) { UI.meOpen = false; renderTop(); }
   const g = ev.target.closest('[data-go]');
   if (g) { go(g.dataset.go); return; }
   const el = ev.target.closest('[data-act]'); if (!el) return;
@@ -4512,7 +4604,7 @@ document.addEventListener('input', ev => {
 });
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && LV.on) { closeLive(); return; }
-  if (ev.key === 'Escape') { UI.sideOpen = false; UI.notifOpen = false; $('#gdrop').hidden = true; renderSide(); renderTop(); }
+  if (ev.key === 'Escape') { UI.sideOpen = false; UI.notifOpen = false; UI.meOpen = false; $('#gdrop').hidden = true; renderSide(); renderTop(); }
   if (ev.key !== 'Enter') return;
   if (ev.target.id === 'bulkKey') A.bulkKey();
   if (ev.target.id === 'nxName') A.createExam();
@@ -4525,6 +4617,6 @@ document.addEventListener('keydown', ev => {
 window.addEventListener('beforeunload', ev => { if (UI.draft?.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
 function icons() { try { window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } }); } catch {} }
 
-document.addEventListener('submit', ev => { if (ev.target.id === 'authForm') { ev.preventDefault(); authSubmit(); } });
+document.addEventListener('submit', ev => { const id = ev.target.id, fn = { authForm: authSubmit, profileForm: profileSave, pwForm: pwChange }[id]; if (!fn) return; ev.preventDefault(); fn(); });
 (async () => { await initStore(); render(); accountsAfterBoot(); })();
 </script>

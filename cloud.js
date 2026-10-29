@@ -99,6 +99,16 @@
     },
     signInEmail: function (email, pass) { return withSdk(function () { return auth.signInWithEmailAndPassword(email, pass); }); },
     resetPassword: function (email) { return withSdk(function () { return auth.sendPasswordResetEmail(email); }); },
+    updateName: function (name) {
+      return withSdk(function () { var u = auth.currentUser; if (!u) throw { code: 'auth/no-current-user' }; return u.updateProfile({ displayName: name || '' }); });
+    },
+    // e-mail accounts: confirm the current password, then set the new one
+    changePassword: function (current, next) {
+      return withSdk(function () {
+        var u = auth.currentUser; if (!u || !u.email) throw { code: 'auth/no-current-user' };
+        return u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email, current)).then(function () { return u.updatePassword(next); });
+      });
+    },
     sendVerification: function () {
       return withSdk(function () { var u = auth.currentUser; if (!u) throw { code: 'auth/no-current-user' }; return u.sendEmailVerification(); });
     },
