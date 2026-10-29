@@ -1,12 +1,14 @@
 // EduScan service worker: the app opens without internet once it has loaded one time.
 // Own files are fetched fresh when online (so updates and config changes arrive), with the cache as fallback.
 // Libraries and fonts from CDNs come from the cache first. Sign-in and sync traffic is never touched.
-const CACHE = 'eduscan-v4';
+const CACHE = 'eduscan-v5';
 const CORE = ['./', './index.html', './manifest.webmanifest', './firebase-config.js', './cloud.js', './icons/icon-192.png', './icons/icon-512.png'];
+// fetched ahead so the styled Excel report also works offline (best effort)
+const EXTRA = ['https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'];
 const STATIC_HOSTS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE).then(() => Promise.all(EXTRA.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting())));
 });
 
 self.addEventListener('activate', e => {

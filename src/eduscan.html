@@ -384,6 +384,46 @@ tr.click:hover td { background: var(--hover); }
 #toast.bad { background: linear-gradient(135deg, #ef4444, #ec4899); }
 .busy { border-top-color: var(--a3); }
 .eyebrow { letter-spacing: 0.09em; }
+/* reports */
+.find { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.find li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--sunk); font-size: 14.5px; line-height: 1.5; }
+.find li > .ic { margin-top: 2px; color: var(--primary); }
+.find li.ok { background: var(--ok-soft); } .find li.ok > .ic { color: var(--ok); }
+.find li.warn { background: var(--warn-soft); } .find li.warn > .ic { color: var(--warn); }
+.find li.bad { background: var(--bad-soft); } .find li.bad > .ic { color: var(--bad); }
+.lvlbar { display: flex; gap: 2px; height: 32px; border-radius: 8px; overflow: hidden; background: var(--sunk); }
+.lvlbar span { display: grid; place-items: center; color: var(--surface); font-size: 12.5px; font-weight: 700; min-width: 32px; }
+.lvl-ext { background: var(--ok); } .lvl-sec { background: var(--primary); } .lvl-sup { background: var(--bad); }
+.lvlleg { display: grid; gap: 6px; }
+.lvlleg div { display: grid; grid-template-columns: 12px 1fr auto; gap: 10px; align-items: center; font-size: 14px; }
+.lvlleg i { width: 12px; height: 12px; border-radius: 3px; }
+.gradebars { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.gb { display: grid; grid-template-columns: 22px 1fr 32px; gap: 10px; align-items: center; font-size: 14px; }
+.bar.wide { width: 100%; }
+.parts { display: grid; gap: 12px; }
+.prow { display: grid; grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 2fr) 60px 100px; gap: 12px; align-items: center; }
+.pname { display: flex; flex-direction: column; min-width: 0; }
+.pname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbar { position: relative; height: 12px; border-radius: 6px; background: var(--sunk); border: 1px solid var(--line); }
+.pbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: var(--primary); }
+.pbar i.ok { background: var(--ok); } .pbar i.warn { background: var(--warn); } .pbar i.bad { background: var(--bad); }
+.pbar em { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px dashed var(--muted); }
+.pbar em.s { border-left-color: var(--ink); opacity: 0.45; }
+.pv { text-align: right; font-weight: 600; }
+td.heat.ok { background: var(--ok-soft); } td.heat.warn { background: var(--warn-soft); } td.heat.bad { background: var(--bad-soft); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.flags { display: grid; gap: 10px; }
+.flagrow { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; }
+.qbadge { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: var(--surface); font: 700 13px var(--f-mono); }
+td.wrapcell { white-space: normal; min-width: 220px; max-width: 420px; }
+tr.tiprow td { border-top: 0; padding-top: 0; white-space: normal; }
+table.items tr:has(+ tr.tiprow) td { border-bottom: 0; }
+.tip { display: inline-flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--muted); padding: 6px 10px; border-radius: 8px; background: var(--sunk); max-width: 900px; }
+.tip .ic { width: 15px; height: 15px; margin-top: 2px; }
+.tip.bad { background: var(--bad-soft); color: var(--ink); } .tip.warn { background: var(--warn-soft); color: var(--ink); }
+.dist span.bd { color: var(--warn); font-weight: 700; }
+@media (max-width: 640px) { .prow { grid-template-columns: 1fr 56px; } .prow .pbar { grid-column: 1 / -1; grid-row: 2; } .prow > .pill, .prow > span:last-child:empty { display: none; } }
 </style>
 
 <div class="shell">
@@ -501,13 +541,13 @@ const ago = t => {
 };
 
 // =============== state ===============
-const DEF_SETTINGS = { id: 'main', school: '', teacher: '', thrSuccess: 60, thrQuality: 70, grades: [['A', 90], ['B', 80], ['C', 70], ['D', 60], ['F', 0]], defPoints: 1, defChoices: 4 };
+const DEF_SETTINGS = { id: 'main', school: '', teacher: '', thrSuccess: 60, thrQuality: 70, thrSupport: 50, grades: [['A', 90], ['B', 80], ['C', 70], ['D', 60], ['F', 0]], defPoints: 1, defChoices: 4 };
 const S = { classes: [], students: [], exams: [], attempts: [], settings: [clone(DEF_SETTINGS)] };
 const UI = {
   page: 'dashboard', examId: null, classId: null, studentId: null, examTab: 'info',
   confirm: null, draft: null, filters: { q: '', classId: '', subject: '', status: '', from: '', to: '' },
   stuFilter: { q: '', classId: '', active: 'active' }, sel: new Set(), sideOpen: false, notifOpen: false,
-  sheet: { examId: '', classId: '', mode: 'blank' }, gradeExamId: '', reportExamId: '', reportSort: { k: 'rank', d: 1 }, reportQ: '', itemSort: 'num',
+  sheet: { examId: '', classId: '', mode: 'blank' }, gradeExamId: '', reportExamId: '', reportSort: { k: 'rank', d: 1 }, reportQ: '', itemSort: 'num', repClass: '', repTab: 'overview',
   importRows: null, scanBusy: false, newExam: false, newClass: false, editStudent: null,
 };
 const Cap = { db: null, user: null, sample: null, downloads: null, uid: null, name: '', mode: 'memory', canImages: false, maxImages: 1 };
@@ -679,6 +719,157 @@ function examStats(ex) {
     stale: as.filter(a => a.keyVersion !== ex.keyVersion).length,
   };
 }
+
+// =============== analysis: levels, parts, item statistics, reliability ===============
+// levels follow the success / quality thresholds in Settings; parts are the teacher's topics (question ranges)
+const LEVELS = { ext: ['Ахисан', 'ok'], sec: ['Хангалттай', 'acc'], sup: ['Дэмжлэг хэрэгтэй', 'bad'] };
+const LEVEL_ORDER = ['ext', 'sec', 'sup'];
+const thrSupport = () => { const v = settings().thrSupport; return v === '' || v == null || isNaN(v) ? 50 : +v; };
+const levelOf = pct => pct >= settings().thrQuality ? 'ext' : pct >= settings().thrSuccess ? 'sec' : 'sup';
+const levelPill = k => k ? `<span class="pill ${LEVELS[k][1]}">${LEVELS[k][0]}</span>` : '';
+const stMean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN;
+const stMedian = a => { if (!a.length) return NaN; const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const stSd = a => { if (a.length < 2) return NaN; const m = stMean(a); return Math.sqrt(a.reduce((t, x) => t + (x - m) ** 2, 0) / (a.length - 1)); };
+const stVar = a => { const m = stMean(a); return a.reduce((t, x) => t + (x - m) ** 2, 0) / (a.length || 1); };
+function stCorr(x, y) {
+  const n = x.length; if (n < 3) return NaN;
+  const mx = stMean(x), my = stMean(y); let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { const a = x[i] - mx, b = y[i] - my; sxy += a * b; sxx += a * a; syy += b * b; }
+  return sxx && syy ? sxy / Math.sqrt(sxx * syy) : NaN;
+}
+const fmt2 = v => v == null || isNaN(v) ? '—' : (Math.round(v * 100) / 100).toFixed(2);
+// "1-10, 15" -> [0..9, 14]
+function parseRange(s, n) {
+  const out = new Set();
+  String(s || '').replace(/\s*[-–—]\s*/g, '-').split(/[,;\s]+/).filter(Boolean).forEach(p => {
+    const m = p.match(/^(\d+)(?:-(\d+))?$/); if (!m) return;
+    let a = +m[1], b = m[2] ? +m[2] : a; if (a > b) [a, b] = [b, a];
+    for (let i = Math.max(1, a); i <= Math.min(n, b); i++) out.add(i - 1);
+  });
+  return [...out].sort((x, y) => x - y);
+}
+// parts of the exam: the teacher's topics (first match wins), the rest of the multiple choice, the written section
+function examParts(ex) {
+  const n = ex.count, used = new Set(), parts = [];
+  (ex.topics || []).forEach((t, j) => {
+    const items = parseRange(t.range, n).filter(i => !used.has(i));
+    items.forEach(i => used.add(i));
+    if (String(t.name || '').trim() && items.length) parts.push({ id: 't' + j, name: String(t.name).trim(), items, written: [], topic: true });
+  });
+  const rest = Array.from({ length: n }, (_, i) => i).filter(i => !used.has(i));
+  if (rest.length) parts.push({ id: 'mc', name: parts.length ? 'Бусад сонгох асуулт' : 'I хэсэг. Сонгох хариулт', items: rest, written: [] });
+  if ((ex.written || []).length) parts.push({ id: 'wr', name: 'II хэсэг. Задгай даалгавар', items: [], written: ex.written.map((_, i) => i) });
+  // nominal maximum, from the first version's key
+  const k0 = keyOf(ex, V0(ex));
+  parts.forEach(p => { p.max = p.items.reduce((a, i) => a + (k0[i] ? qPts(ex, i) : 0), 0) + p.written.reduce((a, w) => a + (+ex.written[w].max || 0), 0); });
+  return parts;
+}
+const clsOfAttempt = (ex, at) => student(at.studentId)?.classId || ex.classId || '';
+// one student's sheet, scored against the current key
+function studentRec(ex, at, parts) {
+  const key = keyOf(ex, at.version), sc = calc(ex, at);
+  const items = Array.from({ length: ex.count }, (_, i) => {
+    const k = key[i] || ''; if (!k) return null;
+    const a = (at.answers || [])[i] || ''; return { a, k, ok: a === k, pts: qPts(ex, i) };
+  });
+  const wr = (ex.written || []).map((w, i) => { const v = parseFloat((at.written || [])[i]?.points), m = +w.max || 0; return isNaN(v) ? null : Math.min(m, Math.max(0, v)); });
+  const ps = parts.map(p => {
+    let e = 0, m = 0, has = false;
+    p.items.forEach(i => { const it = items[i]; if (!it) return; m += it.pts; has = true; if (it.ok) e += it.pts; });
+    p.written.forEach(w => { m += +ex.written[w].max || 0; if (wr[w] != null) { e += wr[w]; has = true; } });
+    return { e, m, pct: m && has ? e / m * 100 : null };
+  });
+  const lv = levelOf(sc.pct), weak = parts.filter((p, j) => ps[j].pct != null && ps[j].pct < thrSupport()).map(p => p.name);
+  const st = student(at.studentId);
+  return { at, st, cls: clsOfAttempt(ex, at), sc, items, wr, ps, lv, grade: letter(sc.pct), weak, name: st ? fullName(st) : at.name, code: at.studentCode || st?.code || '' };
+}
+function groupSummary(recs, parts) {
+  const pc = recs.map(r => r.sc.pct), st = settings();
+  const lv = { ext: 0, sec: 0, sup: 0 }; recs.forEach(r => lv[r.lv]++);
+  return {
+    n: recs.length, mean: stMean(pc), median: stMedian(pc), sd: stSd(pc), min: Math.min(...pc), max: Math.max(...pc),
+    meanPts: stMean(recs.map(r => r.sc.total)), success: recs.length ? pc.filter(p => p >= st.thrSuccess).length / recs.length * 100 : 0,
+    quality: recs.length ? pc.filter(p => p >= st.thrQuality).length / recs.length * 100 : 0, lv,
+    partPct: parts.map((p, j) => { let e = 0, m = 0; recs.forEach(r => { if (r.ps[j].pct != null) { e += r.ps[j].e; m += r.ps[j].m; } }); return m ? e / m * 100 : null; }),
+  };
+}
+const IQ = { good: ['Сайн', 'ok'], fair: ['Хангалттай', 'acc'], weak: ['Сайжруулах', 'warn'], bad: ['Шалгах', 'bad'], easy: ['Хэт хялбар', ''], few: ['Өгөгдөл бага', ''] };
+const diffLabel = p => p == null ? '—' : p >= 0.85 ? 'Хэт хялбар' : p >= 0.6 ? 'Хялбар' : p >= 0.35 ? 'Дунд' : 'Хүнд';
+// f: { classId, version }
+function analyze(ex, f = {}) {
+  const parts = examParts(ex), multiV = nVer(ex) > 1;
+  const as = attemptsOf(ex.id).filter(a => (!f.classId || clsOfAttempt(ex, a) === f.classId) && (!f.version || !multiV || (a.version || V0(ex)) === f.version));
+  const recs = as.map(at => studentRec(ex, at, parts)).sort((a, b) => b.sc.total - a.sc.total);
+  recs.forEach((r, i) => { r.rank = i && r.sc.total === recs[i - 1].sc.total ? recs[i - 1].rank : i + 1; });
+  const n = recs.length, sum = groupSummary(recs, parts);
+  // upper and lower 27% by total score
+  const G = n >= 6 ? Math.max(2, Math.round(n * 0.27)) : 0, U = recs.slice(0, G), L = G ? recs.slice(-G) : [];
+  const mixed = multiV && !f.version && new Set(recs.map(r => r.at.version || V0(ex))).size > 1;
+  const partOf = i => parts.find(p => p.items.includes(i))?.name || '';
+  const items = Array.from({ length: ex.count }, (_, i) => {
+    const rs = recs.filter(r => r.items[i]), nk = rs.length;
+    const it = { n: i + 1, i, part: partOf(i), pts: qPts(ex, i), nk, keyed: nk > 0 };
+    const keys = [...new Set(rs.map(r => r.items[i].k))];
+    it.key = keys.length === 1 && !mixed ? keys[0] : multiV ? ex.versions.map(v => `${v}:${keyOf(ex, v)[i] || '–'}`).join(' ') : (keys[0] || '');
+    if (!nk) return it;
+    const ok = rs.filter(r => r.items[i].ok).length;
+    it.p = ok / nk; it.correct = ok;
+    const gu = U.filter(r => r.items[i]), gl = L.filter(r => r.items[i]);
+    it.pU = gu.length ? gu.filter(r => r.items[i].ok).length / gu.length : null;
+    it.pL = gl.length ? gl.filter(r => r.items[i].ok).length / gl.length : null;
+    it.D = it.pU != null && it.pL != null ? it.pU - it.pL : null;
+    const r = stCorr(rs.map(x => x.items[i].ok ? 1 : 0), rs.map(x => x.sc.total - (x.items[i].ok ? x.items[i].pts : 0)));
+    it.r = isNaN(r) ? null : r;
+    const cnt = (list) => { const d = {}; list.forEach(x => { const a = x.items[i].a || '–'; d[a] = (d[a] || 0) + 1; }); return d; };
+    it.dist = cnt(rs); it.du = cnt(gu); it.dl = cnt(gl);
+    it.blank = (it.dist['–'] || 0) / nk; it.multi = (it.dist['*'] || 0) / nk;
+    it.q = it.D == null ? 'few' : it.D < 0 ? 'bad' : it.p >= 0.9 && it.D < 0.2 ? 'easy' : it.D < 0.2 ? 'weak' : it.D < 0.3 ? 'fair' : 'good';
+    it.mixed = mixed;
+    const opts = LET.slice(0, ex.choices).split(''), key = keys[0];
+    const distr = mixed ? [] : opts.filter(o => o !== key);
+    const lure = distr.map(o => [o, (it.dist[o] || 0) / nk]).sort((a, b) => b[1] - a[1])[0];
+    it.badDistr = distr.filter(o => (it.du[o] || 0) > (it.dl[o] || 0) && (it.du[o] || 0) >= 2);
+    it.deadDistr = nk >= 10 ? distr.filter(o => !it.dist[o]) : [];
+    const tips = [];
+    if (it.q === 'bad') tips.push('Ялгах чадвар сөрөг: сайн сурдаг сурагчид буруу хариулсан. Түлхүүр зөв эсэх, асуултын томьёоллыг шалгана уу.' + (it.badDistr.length ? ` Дээд бүлэг «${it.badDistr.join('», «')}»-г олон сонгосон.` : ''));
+    else if (it.p < 0.35) tips.push(`Ихэнх сурагч алдсан (зөв ${Math.round(it.p * 100)}%). Энэ агуулгыг дахин заах шаардлагатай.`);
+    else if (it.p >= 0.9) tips.push('Бараг бүх сурагч зөв хариулсан. Агуулгыг эзэмшсэн, дараагийн удаа хүндрүүлж болно.');
+    else if (it.q === 'weak') tips.push('Сайн, сул сурагчийг ялгах чадвар бага. Буруу хариултын хувилбаруудыг сайжруулна уу.');
+    else if (it.q === 'good') tips.push('Сайн ажилласан асуулт.');
+    else if (it.q === 'fair') tips.push('Хангалттай ажилласан асуулт.');
+    if (lure && lure[1] >= 0.3 && it.q !== 'bad') tips.push(`«${lure[0]}» хариултыг ${Math.round(lure[1] * 100)}% сонгосон нь түгээмэл буруу ойлголт байж болзошгүй.`);
+    if (it.deadDistr.length) tips.push(`«${it.deadDistr.join('», «')}» хариултыг хэн ч сонгоогүй.`);
+    if (mixed) tips.push('Хувилбаруудыг хольж тооцсон тул сонголтын тархалтыг хувилбараар шүүж харна уу.');
+    it.tip = tips.join(' ');
+    return it;
+  });
+  const written = (ex.written || []).map((w, i) => {
+    const m = +w.max || 0, vals = recs.map(r => r.wr[i]).filter(v => v != null);
+    return { n: i + 1, max: m, graded: vals.length, pending: n - vals.length, mean: stMean(vals), pct: m && vals.length ? stMean(vals) / m * 100 : null, zero: vals.filter(v => v === 0).length, full: vals.filter(v => v >= m).length, prompt: w.prompt || '' };
+  });
+  // reliability: Cronbach's alpha over the item scores (KR-20 when every item is 0/1)
+  let alpha = null, sem = null;
+  const cols = items.filter(it => it.keyed && it.nk === n).map(it => r => r.items[it.i].ok ? r.items[it.i].pts : 0)
+    .concat(written.filter(w => !w.pending && w.max).map(w => r => r.wr[w.n - 1]));
+  if (n >= 5 && cols.length >= 2) {
+    const tot = recs.map(r => cols.reduce((a, c) => a + c(r), 0)), vt = stVar(tot);
+    if (vt > 0) {
+      const sv = cols.reduce((a, c) => a + stVar(recs.map(c)), 0);
+      alpha = cols.length / (cols.length - 1) * (1 - sv / vt);
+      sem = Math.sqrt(vt * n / (n - 1)) * Math.sqrt(Math.max(0, 1 - alpha));
+    }
+  }
+  const bins = Array(10).fill(0); recs.forEach(r => bins[Math.min(9, Math.floor(r.sc.pct / 10))]++);
+  const grades = settings().grades.map(([g]) => [g, recs.filter(r => r.grade === g).length]);
+  const byGroup = (keyFn, label) => {
+    const m = new Map(); recs.forEach(r => { const k = keyFn(r); if (!m.has(k)) m.set(k, []); m.get(k).push(r); });
+    return [...m.entries()].map(([id, rs]) => ({ id, name: label(id), ...groupSummary(rs, parts) })).sort((a, b) => a.name.localeCompare(b.name));
+  };
+  const classes = byGroup(r => r.cls, id => id ? className(id) : 'Ангигүй');
+  const versions = multiV ? byGroup(r => r.at.version || V0(ex), v => v + ' хувилбар') : [];
+  return { ex, f, parts, recs, n, ...sum, G, items, written, alpha, sem, bins, grades, classes, versions, maxPts: recs[0]?.sc.max ?? 0, multiV };
+}
+const alphaLabel = a => a == null ? '' : a >= 0.8 ? 'өндөр' : a >= 0.7 ? 'хангалттай' : a >= 0.5 ? 'дунд' : 'бага';
 
 // =============== answer sheet geometry (mm, A4 portrait) ===============
 const MARKERS = [[14, 14], [196, 14], [196, 283], [14, 283]];
@@ -1202,10 +1393,10 @@ function xlsxBlob(sheets) {
 }
 const csvText = rows => '﻿' + rows.map(r => r.map(v => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\r\n');
 function resultRows(ex) {
-  const rows = [['Байр', 'Код', 'Овог', 'Нэр', 'Анги', 'Хувилбар', 'Зөв', 'Буруу', 'Хоосон', 'Сонгох оноо', 'Задгай оноо', 'Нийт оноо', 'Боломжит', 'Хувь', 'Үнэлгээ', ...Array.from({ length: ex.count }, (_, i) => 'А' + (i + 1)), ...(ex.written || []).map((_, i) => 'Даалгавар ' + (i + 1))]];
+  const rows = [['Байр', 'Код', 'Овог', 'Нэр', 'Анги', 'Хувилбар', 'Зөв', 'Буруу', 'Хоосон', 'Сонгох оноо', 'Задгай оноо', 'Нийт оноо', 'Боломжит', 'Хувь', 'Үнэлгээ', 'Түвшин', ...Array.from({ length: ex.count }, (_, i) => 'А' + (i + 1)), ...(ex.written || []).map((_, i) => 'Даалгавар ' + (i + 1))]];
   rankList(ex).forEach(r => {
     const s = r.score, st = student(r.at.studentId);
-    rows.push([r.rank, r.at.studentCode, st?.last || '', st?.first || r.at.name, className(st?.classId || ex.classId), r.at.version || '', s.correct, s.wrong, s.blank, +fmt(s.mcPts), +fmt(s.wPts), +fmt(s.total), +fmt(s.max), s.pct, letter(s.pct),
+    rows.push([r.rank, r.at.studentCode, st?.last || '', st?.first || r.at.name, className(st?.classId || ex.classId), r.at.version || '', s.correct, s.wrong, s.blank, +fmt(s.mcPts), +fmt(s.wPts), +fmt(s.total), +fmt(s.max), s.pct, letter(s.pct), LEVELS[levelOf(s.pct)][0],
       ...Array.from({ length: ex.count }, (_, i) => (r.at.answers || [])[i] || ''), ...(ex.written || []).map((_, i) => (r.at.written || [])[i]?.points ?? '')]);
   });
   return rows;
@@ -1217,6 +1408,450 @@ function itemRows(ex) {
 }
 function studentRows(list) {
   return [['Код', 'Овог', 'Нэр', 'Анги', 'Хүйс', 'Төлөв'], ...list.map(s => [s.code, s.last, s.first, className(s.classId), s.gender || '', s.active === false ? 'Идэвхгүй' : 'Идэвхтэй'])];
+}
+
+// =============== Excel report: styled workbook with live formulas (ExcelJS, loaded on first use) ===============
+// Layout follows the school's results workbook: Guide with editable thresholds, one sheet per class, class summary.
+const EXCELJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+let excelJsP = null;
+function loadExcelJS() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (!excelJsP) excelJsP = new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = EXCELJS_URL; s.async = true;
+    s.onload = () => window.ExcelJS ? res(window.ExcelJS) : rej(new Error('ExcelJS'));
+    s.onerror = () => { excelJsP = null; s.remove(); rej(new Error('ExcelJS')); };
+    document.head.appendChild(s);
+  });
+  return excelJsP;
+}
+const XC = { navy: 'FF1F4E79', tab: 'FF2E75B6', head: 'FFDDEBF7', grey: 'FFEDEDED', input: 'FFFFF2CC', white: 'FFFFFFFF', line: 'FFA6A6A6', ink: 'FF000000', muted: 'FF595959',
+  okF: 'FFC6EFCE', okT: 'FF006100', midF: 'FFFFEB9C', midT: 'FF9C5700', badF: 'FFFFC7CE', badT: 'FF9C0006' };
+const xFill = c => ({ type: 'pattern', pattern: 'solid', fgColor: { argb: c } });
+const xDxf = (bg, fg, bold) => ({ fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: bg } }, font: { color: { argb: fg }, bold: !!bold } });
+const xEdge = { style: 'thin', color: { argb: XC.line } };
+const xBox = { top: xEdge, left: xEdge, bottom: xEdge, right: xEdge };
+const xCol = n => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+const xQ = name => `'${String(name).replace(/'/g, "''")}'`;
+const xStr = s => '"' + String(s).replace(/"/g, '""') + '"';
+const xNum = v => v == null || v === '' || (typeof v === 'number' && !isFinite(v)) ? '' : v;
+const xR1 = v => typeof v === 'number' && isFinite(v) ? Math.round(v * 10) / 10 : '';
+// kinds: title, sub, hdr, lab, max, calc, input, note
+function xStyle(c, kind, o = {}) {
+  const left = ['lab', 'note', 'sub', 'title'].includes(kind);
+  c.font = { name: 'Calibri', size: kind === 'title' ? 14 : 11, bold: ['title', 'hdr', 'lab', 'max'].includes(kind) || !!o.b, italic: kind === 'sub',
+    color: { argb: o.color || (kind === 'hdr' ? XC.white : kind === 'sub' || kind === 'note' ? XC.muted : XC.ink) } };
+  const bg = o.fill || { hdr: XC.navy, lab: XC.head, max: XC.head, calc: XC.grey, input: XC.input }[kind];
+  if (bg) c.fill = xFill(bg);
+  if (!['title', 'sub', 'note'].includes(kind)) c.border = xBox;
+  c.alignment = { horizontal: o.h || (left ? 'left' : 'center'), vertical: kind === 'note' ? 'top' : 'middle', wrapText: kind === 'hdr' || kind === 'note' || !!o.wrap, textRotation: o.rot || 0 };
+  if (o.fmt) c.numFmt = o.fmt;
+}
+function xSet(ws, r, col, value, kind, o) {
+  const c = ws.getCell(r, col);
+  c.value = value === undefined || value === '' ? null : value;
+  if (kind) xStyle(c, kind, o);
+  return c;
+}
+const xF = (formula, result) => ({ formula, result: xNum(result) });
+function xMerge(ws, r1, c1, r2, c2, kind, o) { for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) xStyle(ws.getCell(r, c), kind, o); ws.mergeCells(r1, c1, r2, c2); }
+function xSheetName(name, used) {
+  let s = String(name || 'Хуудас').replace(/[[\]*?/\\:]/g, ' ').replace(/^'+|'+$/g, '').trim().slice(0, 31) || 'Хуудас';
+  const b = s; let i = 2;
+  while (used.has(s.toLowerCase())) s = b.slice(0, 27) + ' (' + i++ + ')';
+  used.add(s.toLowerCase()); return s;
+}
+// compress column numbers into "D6:H6,K6" pieces for formulas
+function xCells(cols, r) {
+  const s = cols.slice().sort((a, b) => a - b), out = [];
+  for (let i = 0; i < s.length; i++) { let j = i; while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++; out.push(i === j ? `${xCol(s[i])}${r}` : `${xCol(s[i])}${r}:${xCol(s[j])}${r}`); i = j; }
+  return out.join(',');
+}
+const xColorScale = ref => ({ ref, rules: [{ type: 'colorScale', priority: 1, cfvo: [{ type: 'num', value: 0 }, { type: 'num', value: 0.5 }, { type: 'num', value: 1 }], color: [{ argb: 'FFF8696B' }, { argb: 'FFFFEB84' }, { argb: 'FF63BE7B' }] }] });
+const xLevelRules = ref => ({ ref, rules: [
+  { type: 'cellIs', operator: 'equal', formulae: [xStr(LEVELS.ext[0])], style: xDxf(XC.okF, XC.okT), priority: 1 },
+  { type: 'cellIs', operator: 'equal', formulae: [xStr(LEVELS.sec[0])], style: xDxf(XC.midF, XC.midT), priority: 2 },
+  { type: 'cellIs', operator: 'equal', formulae: [xStr(LEVELS.sup[0])], style: xDxf(XC.badF, XC.badT), priority: 3 }] });
+
+function xGuide(wb, ex, R, used) {
+  const st = settings(), name = xSheetName('Заавар', used);
+  const ws = wb.addWorksheet(name, { views: [{ showGridLines: false }], properties: { tabColor: { argb: XC.navy } }, pageSetup: { paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  [64, 16, 16, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  xSet(ws, 1, 1, `${ex.name}: үр дүнгийн тайлан / Results workbook`, 'title'); ws.getRow(1).height = 22;
+  xSet(ws, 2, 1, `EduScan Mongolia · тайлан гаргасан ${todayStr()}`, 'sub');
+  let r = 4;
+  xSet(ws, r, 1, 'Шалгалтын мэдээлэл / Exam', 'lab'); xMerge(ws, r, 2, r, 4, 'lab');
+  const info = [['Шалгалт', ex.name], ['Хичээл', ex.subject || '—'], ['Анги', R.classes.map(c => c.name).join(', ') || className(ex.classId)], ['Огноо', ex.date || '—'],
+    ['Сонгох асуулт', `${ex.count} асуулт, ${ex.choices} сонголттой`], ['Задгай даалгавар', (ex.written || []).length ? `${ex.written.length} даалгавар` : 'байхгүй'],
+    ['Нийт боломжит оноо', R.maxPts], ...(nVer(ex) > 1 ? [['Хувилбар', ex.versions.join(', ')]] : []), ['Засагдсан хуудас', R.n]];
+  info.forEach(([k, v]) => { r++; xSet(ws, r, 1, k, 'calc', { h: 'left' }); xSet(ws, r, 2, v, 'calc', { h: 'left' }); xMerge(ws, r, 2, r, 4, 'calc', { h: 'left' }); });
+  r += 2; xSet(ws, r, 1, 'Түвшний босго: нийт онооны хувиас / Level thresholds', 'lab'); xSet(ws, r, 2, 'Хувь', 'lab');
+  r++; xSet(ws, r, 1, `${LEVELS.ext[0]} (Extending): энэ хувиас дээш`, 'calc', { h: 'left' }); xSet(ws, r, 2, st.thrQuality / 100, 'input', { fmt: '0%' }); const extR = r;
+  r++; xSet(ws, r, 1, `${LEVELS.sec[0]} (Secure): энэ хувиас дээш`, 'calc', { h: 'left' }); xSet(ws, r, 2, st.thrSuccess / 100, 'input', { fmt: '0%' }); const secR = r;
+  r++; xSet(ws, r, 1, `${LEVELS.sup[0]} (Not yet secure): дээрх босгоос доош`, 'calc', { h: 'left' }); xSet(ws, r, 2, '', 'calc');
+  r += 2; xSet(ws, r, 1, 'Үсгэн үнэлгээ: доод хязгаар / Grade from', 'lab'); xSet(ws, r, 2, 'Хувь', 'lab');
+  const grades = st.grades.map(([g, t]) => { r++; xSet(ws, r, 1, `${g} үнэлгээ`, 'calc', { h: 'left' }); const last = +t <= 0; xSet(ws, r, 2, last ? 0 : t / 100, last ? 'calc' : 'input', { fmt: '0%' }); return [g, last ? null : `${xQ(name)}!$B$${r}`, t / 100]; });
+  r += 2; xSet(ws, r, 1, 'Дэмжлэг хэрэгтэй гэж үзэх: хэсгийн гүйцэтгэл энэ хувиас доош / Support needed below', 'lab', { wrap: true }); xSet(ws, r, 2, 'Дээд оноо', 'lab'); xSet(ws, r, 3, 'Хувь', 'lab'); ws.getRow(r).height = 30;
+  const thr = R.parts.map(p => { r++; xSet(ws, r, 1, p.name, 'calc', { h: 'left' }); xSet(ws, r, 2, p.max, 'calc'); xSet(ws, r, 3, thrSupport() / 100, 'input', { fmt: '0%' }); return `${xQ(name)}!$C$${r}`; });
+  r += 2; xMerge(ws, r, 1, r, 4, 'lab'); ws.getCell(r, 1).value = 'Хэрхэн ашиглах вэ / How to use';
+  const notes = [
+    'Шар нүдэнд утга оруулж, өөрчилж болно (оноо, босго). Саарал нүд автоматаар бодогдоно. / Yellow cells can be edited, grey cells calculate automatically.',
+    'Анги бүрийн хуудсанд сурагч бүрийн асуулт тус бүрийн оноо байна: ногоон нь бүтэн оноо, улаан нь 0 оноо (буруу эсвэл хариулаагүй). Сонгосон хариулт нь «Хариултын матриц» хуудсанд бий.',
+    'Задгай даалгаврын оноог шар нүдэнд оруулж, засварлавал хэсгийн оноо, нийт оноо, хувь, үнэлгээ, түвшин, «Дэмжлэг хэрэгтэй хэсэг» багана шинэчлэгдэнэ.',
+    'Дээрх босгыг өөрчилбөл бүх хуудасны түвшин, үнэлгээ, дэмжлэгийн багана болон «Ангийн дүн» хуудас автоматаар шинэчлэгдэнэ.',
+    `Түвшний утга: ${LEVELS.sup[0]} — гол ойлголтыг дахин заах, давтлага хийх; ${LEVELS.sec[0]} — хэрэглээний даалгавраар бататгах; ${LEVELS.ext[0]} — өргөтгөсөн, бүтээлч даалгавар өгөх.`,
+    '«Ангийн дүн»: ангиудын харьцуулалт, хэсэг ба асуулт тус бүрийн дундаж хувь. Хамгийн бага хувьтай хэсэг, асуултыг эхэлж дахин заана.',
+    '«Асуултын шинжилгээ»: Зөв % (хүндрэл), D (ялгах чадвар: нийт оноогоор дээд, доод 27% бүлгийн зөрүү; 0.30-аас дээш сайн, сөрөг бол түлхүүрийг шалгах), r (цэг-бисериал хамаарал), Кронбахын α (найдвартай байдал: 0.70-аас дээш хангалттай).',
+    '«Хариултын матриц»: сурагч бүрийн сонгосон хариулт. Ногоон зөв, улаан буруу, саарал хариулаагүй, шар олон хариулт бөглөсөн. «Тархалт»: хувийн завсар, түвшин, үнэлгээгээр тоолсон.',
+    ...(+ex.penalty ? [`Буруу хариулт бүрт ${ex.penalty} оноо хасна. Анги бүрийн хуудасны «Буруу хариулт» баганыг тооцоонд ашиглана.`] : []),
+  ];
+  notes.forEach(t => { r++; xMerge(ws, r, 1, r, 4, 'note'); ws.getCell(r, 1).value = t; ws.getRow(r).height = Math.max(1, Math.ceil(t.length / 105)) * 15 + 3; });
+  return { name, ext: `${xQ(name)}!$B$${extR}`, sec: `${xQ(name)}!$B$${secR}`, grades, thr };
+}
+
+function xClassSheets(wb, ex, R, G, used) {
+  const multiV = nVer(ex) > 1, parts = R.parts, pen = +ex.penalty || 0;
+  const qIdx = Array.from({ length: ex.count }, (_, i) => i).filter(i => (multiV ? ex.versions : ['']).some(v => keyOf(ex, v)[i]));
+  const wIdx = (ex.written || []).map((_, i) => i);
+  const ids = [...new Set([...R.recs.map(r => r.cls), ...(ex.classId ? [ex.classId] : [])])].sort((a, b) => (a ? className(a) : 'я').localeCompare(b ? className(b) : 'я'));
+  return ids.map(cid => {
+    const recs = R.recs.filter(r => r.cls === cid), done = new Set(recs.map(r => r.at.studentId));
+    const missing = cid ? studentsOf(cid).filter(s => s.active !== false && !done.has(s.id)) : [];
+    const rows = [...recs.map(r => ({ r, code: r.code, name: r.name })), ...missing.map(s => ({ code: s.code, name: fullName(s) }))]
+      .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    const cname = cid ? className(cid) : 'Ангигүй', name = xSheetName(cname, used);
+    let c = 1; const C = { no: c++, code: c++, name: c++ };
+    if (multiV) C.ver = c++;
+    C.items = qIdx.map(() => c++); C.written = wIdx.map(() => c++);
+    if (pen) C.wrong = c++;
+    C.parts = parts.map(() => c++);
+    C.total = c++; C.pct = c++; C.grade = c++; C.level = c++; C.support = c++; C.rank = c++;
+    const last = c - 1, first = 6, lastRow = first + Math.max(rows.length, 1) - 1;
+    const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', xSplit: C.name, ySplit: 5 }], properties: { tabColor: { argb: XC.tab } },
+      pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: '4:5' } });
+    const itemW = qIdx.length > 30 ? 4.3 : qIdx.length > 15 ? 5 : 6.5;
+    ws.getColumn(C.no).width = 5; ws.getColumn(C.code).width = 8; ws.getColumn(C.name).width = 28; if (C.ver) ws.getColumn(C.ver).width = 9;
+    C.items.forEach(k => { ws.getColumn(k).width = itemW; }); C.written.forEach(k => { ws.getColumn(k).width = 10; }); if (C.wrong) ws.getColumn(C.wrong).width = 9;
+    C.parts.forEach(k => { ws.getColumn(k).width = 13; });
+    [[C.total, 10], [C.pct, 8], [C.grade, 9], [C.level, 18], [C.support, 46], [C.rank, 7]].forEach(([k, w]) => { ws.getColumn(k).width = w; });
+    // title, class, date
+    xSet(ws, 1, 1, `${ex.name} · ${cname}`, 'title'); ws.getRow(1).height = 22;
+    xMerge(ws, 2, 1, 2, 2, 'lab'); ws.getCell(2, 1).value = 'Анги / Class'; xSet(ws, 2, 3, cname, 'input', { h: 'left' });
+    const dl = C.name + 1; xMerge(ws, 2, dl, 2, dl + 2, 'lab'); ws.getCell(2, dl).value = 'Огноо / Date'; xMerge(ws, 2, dl + 3, 2, dl + 5, 'input', { h: 'left' }); ws.getCell(2, dl + 3).value = ex.date || '';
+    // headers
+    const H = [[C.no, '№'], [C.code, 'Код'], [C.name, 'Сурагчийн нэр / Student name']];
+    if (C.ver) H.push([C.ver, 'Хувилбар']);
+    qIdx.forEach((i, j) => H.push([C.items[j], String(i + 1)]));
+    wIdx.forEach((i, j) => H.push([C.written[j], `Задгай ${i + 1} (${fmt(+ex.written[i].max || 0)})`]));
+    if (C.wrong) H.push([C.wrong, 'Буруу хариулт']);
+    parts.forEach((p, j) => H.push([C.parts[j], `${p.name} /${fmt(p.max)}`]));
+    const maxTot = qIdx.reduce((a, i) => a + qPts(ex, i), 0) + wIdx.reduce((a, i) => a + (+ex.written[i].max || 0), 0);
+    H.push([C.total, `Нийт / Total /${fmt(maxTot)}`], [C.pct, '%'], [C.grade, 'Үнэлгээ / Grade'], [C.level, 'Түвшин / Level'], [C.support, 'Дэмжлэг хэрэгтэй хэсэг / Needs support in'], [C.rank, 'Байр']);
+    H.forEach(([k, t]) => xSet(ws, 4, k, t, 'hdr'));
+    ws.getRow(4).height = Math.max(48, ...parts.map(p => Math.ceil((p.name.length + 6) / 11) * 15 + 4));
+    // max marks
+    for (let k = 1; k <= last; k++) xSet(ws, 5, k, '', 'max');
+    ws.getCell(5, C.name).value = 'Дээд оноо / Max marks'; ws.getCell(5, C.name).alignment = { horizontal: 'left', vertical: 'middle' };
+    qIdx.forEach((i, j) => { ws.getCell(5, C.items[j]).value = qPts(ex, i); });
+    wIdx.forEach((i, j) => { ws.getCell(5, C.written[j]).value = +ex.written[i].max || 0; });
+    const colsOf = p => [...p.items.map(i => qIdx.indexOf(i)).filter(j => j >= 0).map(j => C.items[j]), ...p.written.map(w => C.written[w])];
+    parts.forEach((p, j) => { const cs = xCells(colsOf(p), 5); ws.getCell(5, C.parts[j]).value = cs ? xF(`SUM(${cs})`, p.max) : 0; });
+    const scoreCols = [...C.items, ...C.written];
+    ws.getCell(5, C.total).value = scoreCols.length ? xF(`SUM(${xCells(scoreCols, 5)})`, maxTot) : 0;
+    // student rows
+    const T = xCol(C.total), P = xCol(C.pct), rankIn = new Map(recs.map(r => [r, 1 + recs.filter(o => o.sc.total > r.sc.total).length]));
+    rows.forEach((row, k) => {
+      const r = first + k, rec = row.r;
+      xSet(ws, r, C.no, k + 1, 'calc'); xSet(ws, r, C.code, String(row.code || ''), 'calc'); xSet(ws, r, C.name, row.name, 'calc', { h: 'left' });
+      if (C.ver) xSet(ws, r, C.ver, rec ? (rec.at.version || '') : '', 'calc');
+      qIdx.forEach((i, j) => {
+        const it = rec?.items[i]; xSet(ws, r, C.items[j], it ? (it.ok ? it.pts : 0) : null, 'input');
+      });
+      wIdx.forEach((i, j) => {
+        xSet(ws, r, C.written[j], rec ? rec.wr[i] : null, 'input');
+      });
+      if (C.wrong) xSet(ws, r, C.wrong, rec ? rec.sc.wrong : null, 'input');
+      parts.forEach((p, j) => { const cells = xCells(colsOf(p), r); xSet(ws, r, C.parts[j], xF(cells ? `IF(COUNT(${cells})=0,"",SUM(${cells}))` : '""', rec && rec.ps[j].pct != null ? rec.ps[j].e : ''), 'calc'); });
+      const all = xCells(scoreCols, r), mc = xCells(C.items, r), wr = xCells(C.written, r);
+      const tf = !all ? '""' : pen && mc ? `IF(COUNT(${all})=0,"",MAX(0,SUM(${mc})-${pen}*N(${xCol(C.wrong)}${r}))${wr ? `+SUM(${wr})` : ''})` : `IF(COUNT(${all})=0,"",SUM(${all}))`;
+      xSet(ws, r, C.total, xF(tf, rec ? rec.sc.total : ''), 'calc', { b: true });
+      xSet(ws, r, C.pct, xF(`IF(${T}${r}="","",${T}${r}/${T}$5)`, rec && maxTot ? rec.sc.total / maxTot : ''), 'calc', { fmt: '0%' });
+      const gs = G.grades.filter(g => g[1]), gf = gs.reduceRight((acc, [g, ref]) => `IF(${P}${r}>=${ref},${xStr(g)},${acc})`, xStr(G.grades[G.grades.length - 1][0]));
+      xSet(ws, r, C.grade, xF(`IF(${P}${r}="","",${gf})`, rec ? rec.grade : ''), 'calc', { b: true });
+      xSet(ws, r, C.level, xF(`IF(${P}${r}="","",IF(${P}${r}>=${G.ext},${xStr(LEVELS.ext[0])},IF(${P}${r}>=${G.sec},${xStr(LEVELS.sec[0])},${xStr(LEVELS.sup[0])})))`, rec ? LEVELS[rec.lv][0] : ''), 'calc');
+      const terms = parts.map((p, j) => p.max ? `IF(AND(ISNUMBER(${xCol(C.parts[j])}${r}),${xCol(C.parts[j])}${r}/${xCol(C.parts[j])}$5<${G.thr[j]}),${xStr(p.name + '; ')},"")` : '').filter(Boolean);
+      const X = terms.length ? terms.join('&') : '""';
+      xSet(ws, r, C.support, xF(`IF(${T}${r}="","",IF(${X}="","-",LEFT(${X},LEN(${X})-2)))`, rec ? (rec.weak.join('; ') || '-') : ''), 'calc', { h: 'left' });
+      xSet(ws, r, C.rank, xF(`IF(${T}${r}="","",RANK(${T}${r},${T}$${first}:${T}$${lastRow}))`, rec ? rankIn.get(rec) : ''), 'calc');
+    });
+    if (!rows.length) for (let k = 1; k <= last; k++) xSet(ws, first, k, '', 'calc');
+    // one validation per run of columns with the same maximum
+    const maxOf = k => { const j = C.items.indexOf(k); return j >= 0 ? qPts(ex, qIdx[j]) : +ex.written[C.written.indexOf(k)].max || 0; };
+    for (let a = 0; a < scoreCols.length;) {
+      let b = a; const m = maxOf(scoreCols[a]);
+      while (b + 1 < scoreCols.length && scoreCols[b + 1] === scoreCols[b] + 1 && maxOf(scoreCols[b + 1]) === m) b++;
+      ws.dataValidations.add(`${xCol(scoreCols[a])}${first}:${xCol(scoreCols[b])}${lastRow}`, { type: 'decimal', operator: 'between', allowBlank: true, showErrorMessage: true, formulae: [0, m], errorTitle: 'Оноо', error: `0-ээс ${m} хүртэлх оноо оруулна уу.` });
+      a = b + 1;
+    }
+    // class average and % of max
+    const avgR = lastRow + 2, pctR = avgR + 1, avgCols = [...scoreCols, ...C.parts, C.total];
+    xMerge(ws, avgR, 1, avgR, C.name, 'lab'); ws.getCell(avgR, 1).value = 'Ангийн дундаж / Class average';
+    xMerge(ws, pctR, 1, pctR, C.name, 'lab'); ws.getCell(pctR, 1).value = 'Гүйцэтгэл, дээд онооны % / Average % of max';
+    if (C.ver) { xSet(ws, avgR, C.ver, '', 'lab'); xSet(ws, pctR, C.ver, '', 'lab'); }
+    if (C.wrong) { const L = xCol(C.wrong), v = stMean(recs.map(r => r.sc.wrong)); xSet(ws, avgR, C.wrong, xF(`IFERROR(AVERAGE(${L}${first}:${L}${lastRow}),"")`, xR1(v)), 'calc', { fmt: '0.0' }); xSet(ws, pctR, C.wrong, '', 'calc'); }
+    const colVals = k => {
+      const j = C.items.indexOf(k); if (j >= 0) return [recs.filter(r => r.items[qIdx[j]]).map(r => r.items[qIdx[j]].ok ? r.items[qIdx[j]].pts : 0), qPts(ex, qIdx[j])];
+      const w = C.written.indexOf(k); if (w >= 0) return [recs.map(r => r.wr[w]).filter(v => v != null), +ex.written[w].max || 0];
+      const p = C.parts.indexOf(k); if (p >= 0) return [recs.filter(r => r.ps[p].pct != null).map(r => r.ps[p].e), parts[p].max];
+      return [recs.map(r => r.sc.total), maxTot];
+    };
+    avgCols.forEach(k => {
+      const L = xCol(k), [vals, mx] = colVals(k), m = stMean(vals);
+      xSet(ws, avgR, k, xF(`IFERROR(AVERAGE(${L}${first}:${L}${lastRow}),"")`, xR1(m)), 'calc', { fmt: '0.0', b: true });
+      xSet(ws, pctR, k, xF(`IFERROR(AVERAGE(${L}${first}:${L}${lastRow})/${L}$5,"")`, mx && vals.length ? m / mx : ''), 'calc', { fmt: '0%' });
+    });
+    xSet(ws, avgR, C.pct, xF(`IFERROR(AVERAGE(${P}${first}:${P}${lastRow}),"")`, recs.length && maxTot ? stMean(recs.map(r => r.sc.total)) / maxTot : ''), 'calc', { fmt: '0%', b: true });
+    xSet(ws, pctR, C.pct, '', 'calc');
+    [C.grade, C.level, C.support, C.rank].forEach(k => { xSet(ws, avgR, k, '', 'calc'); xSet(ws, pctR, k, '', 'calc'); });
+    // conditional formatting
+    if (scoreCols.length) {
+      const a = xCol(Math.min(...scoreCols)), b = xCol(Math.max(...scoreCols)), ref = `${a}${first}:${b}${lastRow}`;
+      ws.addConditionalFormatting({ ref, rules: [
+        { type: 'expression', formulae: [`AND(ISNUMBER(${a}${first}),${a}${first}>=${a}$5)`], style: xDxf(XC.okF, XC.okT), priority: 1 },
+        { type: 'expression', formulae: [`AND(ISNUMBER(${a}${first}),${a}${first}=0)`], style: xDxf(XC.badF, XC.badT), priority: 2 }] });
+    }
+    parts.forEach((p, j) => { const L = xCol(C.parts[j]); ws.addConditionalFormatting({ ref: `${L}${first}:${L}${lastRow}`, rules: [{ type: 'expression', formulae: [`AND(ISNUMBER(${L}${first}),${L}${first}/${L}$5<${G.thr[j]})`], style: xDxf(XC.badF, XC.badT, true), priority: 1 }] }); });
+    ws.addConditionalFormatting(xLevelRules(`${xCol(C.level)}${first}:${xCol(C.level)}${lastRow}`));
+    ws.addConditionalFormatting(xColorScale(`${xCol(Math.min(...avgCols))}${pctR}:${xCol(C.total)}${pctR}`));
+    const rng = k => `${xQ(name)}!$${xCol(k)}$${first}:$${xCol(k)}$${lastRow}`;
+    return { name, cid, cname, recs, first, lastRow, C, qIdx, maxTot, rng, max: k => `${xQ(name)}!$${xCol(k)}$5` };
+  });
+}
+
+function xSummary(wb, ex, R, G, sheets, used) {
+  const name = xSheetName('Ангийн дүн', used), st = settings();
+  const ws = wb.addWorksheet(name, { views: [{ showGridLines: false }], properties: { tabColor: { argb: XC.navy } }, pageSetup: { paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const groups = sheets.map(s => ({ label: s.cname, sh: [s], recs: s.recs }));
+  if (sheets.length > 1) groups.push({ label: 'Бүгд / All', sh: sheets, recs: R.recs });
+  ws.getColumn(1).width = 40; groups.forEach((g, i) => { ws.getColumn(i + 2).width = 15; });
+  xSet(ws, 1, 1, 'Ангийн дүн / Class summary', 'title'); ws.getRow(1).height = 22;
+  xSet(ws, 2, 1, `${ex.name} · ${ex.subject || ''} · ${ex.date || ''}`, 'sub');
+  const rs = (g, key) => g.sh.map(s => s.rng(s.C[key])).join(',');
+  const cif = (g, key, crit) => '(' + g.sh.map(s => `COUNTIF(${s.rng(s.C[key])},${crit})`).join('+') + ')';
+  let r = 3;
+  const head = t => { xSet(ws, r, 1, t, 'hdr'); groups.forEach((g, i) => xSet(ws, r, i + 2, g.label, 'hdr')); ws.getRow(r).height = 30; };
+  head('Үзүүлэлт / Measure');
+  const tot = g => g.recs.map(x => x.sc.total), pc = g => g.recs.map(x => x.sc.total / (g.sh[0].maxTot || 1));
+  const M = [
+    ['Засагдсан сурагч / Students', g => `COUNT(${rs(g, 'total')})`, g => g.recs.length, '0'],
+    [`Дундаж оноо / Average total (/${fmt(sheets[0]?.maxTot || 0)})`, g => `IFERROR(ROUND(AVERAGE(${rs(g, 'total')}),1),"")`, g => xR1(stMean(tot(g))), '0.0'],
+    ['Медиан / Median', g => `IFERROR(MEDIAN(${rs(g, 'total')}),"")`, g => xNum(stMedian(tot(g))), '0.0'],
+    ['Стандарт хазайлт / Std. deviation', g => `IFERROR(ROUND(STDEV(${rs(g, 'total')}),1),"")`, g => xR1(stSd(tot(g))), '0.0'],
+    ['Дээд оноо / Highest', g => `IF(COUNT(${rs(g, 'total')})=0,"",MAX(${rs(g, 'total')}))`, g => g.recs.length ? Math.max(...tot(g)) : '', '0.0'],
+    ['Доод оноо / Lowest', g => `IF(COUNT(${rs(g, 'total')})=0,"",MIN(${rs(g, 'total')}))`, g => g.recs.length ? Math.min(...tot(g)) : '', '0.0'],
+    ['Дундаж хувь / Average %', g => `IFERROR(AVERAGE(${rs(g, 'pct')}),"")`, g => xNum(stMean(pc(g))), '0%'],
+    [`Амжилт / Success (≥ ${LEVELS.sec[0].toLowerCase()} босго)`, g => `IFERROR(${cif(g, 'pct', `">="&${G.sec}`)}/COUNT(${rs(g, 'pct')}),"")`, g => g.recs.length ? pc(g).filter(v => v >= st.thrSuccess / 100).length / g.recs.length : '', '0%'],
+    [`Чанар / Quality (≥ ${LEVELS.ext[0].toLowerCase()} босго)`, g => `IFERROR(${cif(g, 'pct', `">="&${G.ext}`)}/COUNT(${rs(g, 'pct')}),"")`, g => g.recs.length ? pc(g).filter(v => v >= st.thrQuality / 100).length / g.recs.length : '', '0%'],
+    ...LEVEL_ORDER.map(k => [`${LEVELS[k][0]} / ${{ ext: 'Extending', sec: 'Secure', sup: 'Not yet secure' }[k]}`, g => cif(g, 'level', xStr(LEVELS[k][0])), g => g.recs.filter(x => x.lv === k).length, '0', k]),
+    ...st.grades.map(([gr]) => [`${gr} үнэлгээ`, g => cif(g, 'grade', xStr(gr)), g => g.recs.filter(x => x.grade === gr).length, '0']),
+  ];
+  M.forEach(([label, f, v, fm, lv]) => {
+    r++; xSet(ws, r, 1, label, 'lab', lv ? { fill: { ext: XC.okF, sec: XC.midF, sup: XC.badF }[lv], color: { ext: XC.okT, sec: XC.midT, sup: XC.badT }[lv] } : undefined);
+    groups.forEach((g, i) => xSet(ws, r, i + 2, xF(f(g), v(g)), 'calc', { fmt: fm }));
+  });
+  // average % by part
+  r += 2; head('Хэсгийн дундаж % / Average % by part'); const p0 = r + 1;
+  R.parts.forEach((p, j) => {
+    r++; xSet(ws, r, 1, p.name, 'lab');
+    groups.forEach((g, i) => {
+      const f = `IFERROR((${g.sh.map(s => `SUM(${s.rng(s.C.parts[j])})`).join('+')})/(${g.sh.map(s => `COUNT(${s.rng(s.C.parts[j])})*${s.max(s.C.parts[j])}`).join('+')}),"")`;
+      let e = 0, m = 0; g.recs.forEach(x => { if (x.ps[j].pct != null) { e += x.ps[j].e; m += p.max; } });
+      xSet(ws, r, i + 2, xF(f, m ? e / m : ''), 'calc', { fmt: '0%' });
+    });
+  });
+  if (R.parts.length) ws.addConditionalFormatting(xColorScale(`B${p0}:${xCol(groups.length + 1)}${r}`));
+  // average % by question
+  r += 2; head('Асуултын дундаж % / Average % by question'); const q0 = r + 1;
+  const qIdx = sheets[0]?.qIdx || [];
+  qIdx.forEach((i, j) => {
+    r++; const part = R.parts.length > 1 ? R.parts.find(p => p.items.includes(i))?.name : '';
+    xSet(ws, r, 1, `${i + 1}-р асуулт${part ? ' · ' + part : ''}`, 'lab');
+    groups.forEach((g, gi) => {
+      const f = `IFERROR((${g.sh.map(s => `SUM(${s.rng(s.C.items[j])})`).join('+')})/(${g.sh.map(s => `COUNT(${s.rng(s.C.items[j])})`).join('+')})/${qPts(ex, i)},"")`;
+      const vals = g.recs.filter(x => x.items[i]).map(x => x.items[i].ok ? 1 : 0);
+      xSet(ws, r, gi + 2, xF(f, vals.length ? stMean(vals) : ''), 'calc', { fmt: '0%' });
+    });
+  });
+  (ex.written || []).forEach((w, j) => {
+    r++; xSet(ws, r, 1, `Задгай даалгавар ${j + 1}`, 'lab'); const m = +w.max || 0;
+    groups.forEach((g, gi) => {
+      const f = `IFERROR((${g.sh.map(s => `SUM(${s.rng(s.C.written[j])})`).join('+')})/(${g.sh.map(s => `COUNT(${s.rng(s.C.written[j])})`).join('+')})/${m || 1},"")`;
+      const vals = g.recs.map(x => x.wr[j]).filter(v => v != null);
+      xSet(ws, r, gi + 2, xF(f, vals.length && m ? stMean(vals) / m : ''), 'calc', { fmt: '0%' });
+    });
+  });
+  if (r >= q0) ws.addConditionalFormatting(xColorScale(`B${q0}:${xCol(groups.length + 1)}${r}`));
+  r += 2; xMerge(ws, r, 1, r, groups.length + 1, 'note'); ws.getCell(r, 1).value = 'Хамгийн бага дундаж хувьтай хэсэг, асуултыг эхэлж дахин заана. / Re-teach the parts and questions with the lowest average % first.';
+  ws.getRow(r).height = 32;
+}
+
+function xItemSheet(wb, ex, R, used) {
+  const name = xSheetName('Асуултын шинжилгээ', used), opts = LET.slice(0, ex.choices).split('');
+  const ws = wb.addWorksheet(name, { views: [{ showGridLines: false }], properties: { tabColor: { argb: 'FF7030A0' } }, pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const widths = [6, 24, 11, 7, 9, 12, 9, 9, 13, 10, ...opts.map(() => 6), 12, 12, 62];
+  widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  const nc = widths.length;
+  xSet(ws, 1, 1, 'Асуултын шинжилгээ / Item analysis', 'title'); ws.getRow(1).height = 22;
+  xSet(ws, 2, 1, `${ex.name} · хүндрэл, ялгах чадвар, сонголтын тархалт`, 'sub');
+  let r = 3;
+  const blocks = nVer(ex) > 1 && R.versions.length > 1 ? ex.versions.map(v => [v + ' хувилбар', analyze(ex, { version: v })]).filter(([, A]) => A.n) : [['', R]];
+  blocks.forEach(([title, A]) => {
+    r++;
+    if (title) { xMerge(ws, r, 1, r, nc, 'lab'); ws.getCell(r, 1).value = title; r++; }
+    const sum = [['Засагдсан сурагч / Students', A.n, '0'], ['Найдвартай байдал, Кронбахын α / Reliability', A.alpha == null ? 'тооцоход өгөгдөл бага' : Math.round(A.alpha * 100) / 100, '0.00', A.alpha == null ? '' : alphaLabel(A.alpha)],
+      ['Хэмжилтийн стандарт алдаа / SEM (оноо)', A.sem == null ? '—' : Math.round(A.sem * 10) / 10, '0.0'], ['Дээд, доод бүлэг / Upper and lower groups', A.G ? `${A.G} сурагч тус бүр (27%)` : 'дор хаяж 6 сурагч шаардлагатай', '']];
+    sum.forEach(([k, v, fm, extra]) => { xMerge(ws, r, 1, r, 4, 'lab'); ws.getCell(r, 1).value = k; xMerge(ws, r, 5, r, 7, 'calc', { fmt: fm }); ws.getCell(r, 5).value = v; if (extra) xSet(ws, r, 8, extra, 'note'); r++; });
+    r++;
+    const H = ['№', 'Хэсэг / Topic', 'Зөв хариулт', 'Оноо', 'Зөв %', 'Хүндрэл', 'Ялгах чадвар (D)', 'Хамаарал (r)', 'Асуултын чанар', 'Хоосон %', ...opts, 'Дээд бүлэг зөв %', 'Доод бүлэг зөв %', 'Зөвлөмж / Recommendation'];
+    H.forEach((t, i) => xSet(ws, r, i + 1, t, 'hdr')); ws.getRow(r).height = 48;
+    const h0 = r + 1;
+    A.items.forEach(it => {
+      r++;
+      const row = [it.n, it.part, it.key || '—', it.pts, it.p ?? '', diffLabel(it.p), it.D ?? '', it.r ?? '', it.keyed ? (it.q === 'few' ? '—' : IQ[it.q][0]) : 'Түлхүүргүй', it.keyed ? it.blank : '',
+        ...opts.map(o => it.keyed ? (it.dist?.[o] || 0) : ''), it.pU ?? '', it.pL ?? '', it.tip || ''];
+      const fm = [null, null, null, null, '0%', null, '0.00', '0.00', null, '0%', ...opts.map(() => '0'), '0%', '0%', null];
+      row.forEach((v, i) => {
+        const o = { fmt: fm[i] || undefined, h: i === 1 || i === row.length - 1 ? 'left' : undefined, wrap: i === row.length - 1 };
+        const isOpt = i >= 10 && i < 10 + opts.length, o2 = isOpt ? opts[i - 10] : '';
+        if (isOpt && !it.mixed && o2 === it.key) Object.assign(o, { fill: XC.okF, color: XC.okT, b: true });
+        else if (isOpt && it.badDistr?.includes(o2)) Object.assign(o, { fill: XC.midF, color: XC.midT, b: true });
+        xSet(ws, r, i + 1, v, 'calc', o);
+      });
+      if (it.tip && it.tip.length > 62) ws.getRow(r).height = Math.ceil(it.tip.length / 62) * 15 + 2;
+    });
+    if (r >= h0) {
+      ws.addConditionalFormatting(xColorScale(`E${h0}:E${r}`));
+      ws.addConditionalFormatting({ ref: `G${h0}:G${r}`, rules: [
+        { type: 'cellIs', operator: 'lessThan', formulae: ['0'], style: xDxf(XC.badF, XC.badT, true), priority: 1 },
+        { type: 'cellIs', operator: 'between', formulae: ['0', '0.1999'], style: xDxf(XC.midF, XC.midT), priority: 2 },
+        { type: 'cellIs', operator: 'greaterThanOrEqual', formulae: ['0.3'], style: xDxf(XC.okF, XC.okT), priority: 3 }] });
+      ws.addConditionalFormatting({ ref: `I${h0}:I${r}`, rules: [
+        { type: 'cellIs', operator: 'equal', formulae: [xStr(IQ.good[0])], style: xDxf(XC.okF, XC.okT), priority: 1 },
+        { type: 'cellIs', operator: 'equal', formulae: [xStr(IQ.weak[0])], style: xDxf(XC.midF, XC.midT), priority: 2 },
+        { type: 'cellIs', operator: 'equal', formulae: [xStr(IQ.bad[0])], style: xDxf(XC.badF, XC.badT, true), priority: 3 }] });
+    }
+    r++;
+  });
+  if (R.written.length) {
+    r++; ['№', 'Задгай даалгавар / Task', '', '', 'Дээд оноо', 'Дундаж оноо', 'Дундаж %', '0 оноо', 'Бүтэн оноо', 'Үнэлээгүй'].forEach((t, i) => xSet(ws, r, i + 1, t, 'hdr'));
+    ws.mergeCells(r, 2, r, 4); const w0 = r + 1;
+    R.written.forEach(w => {
+      r++; xSet(ws, r, 1, w.n, 'calc'); xMerge(ws, r, 2, r, 4, 'calc', { h: 'left', wrap: true }); ws.getCell(r, 2).value = w.prompt || '';
+      [w.max, isNaN(w.mean) ? '' : Math.round(w.mean * 10) / 10, w.pct == null ? '' : w.pct / 100, w.zero, w.full, w.pending].forEach((v, i) => xSet(ws, r, 5 + i, v, 'calc', { fmt: i === 2 ? '0%' : i === 1 ? '0.0' : '0' }));
+      ws.getRow(r).height = Math.max(1, Math.ceil((w.prompt || '').length / 40)) * 15 + 2;
+    });
+    ws.addConditionalFormatting(xColorScale(`G${w0}:G${r}`));
+  }
+  r += 2;
+  ['Зөв % (хүндрэл): 85%-иас дээш хэт хялбар, 60–85% хялбар, 35–60% дунд, 35%-иас доош хүнд.',
+    'Ялгах чадвар (D): нийт оноогоор дээд 27%, доод 27% бүлгийн зөв хариулсан хувийн зөрүү. 0.30-аас дээш сайн, 0.20–0.29 хангалттай, 0.20-оос доош сайжруулах, сөрөг бол түлхүүр эсвэл асуултыг шалгана.',
+    'Хамаарал (r): цэг-бисериал хамаарал, тухайн асуулт ба бусад асуултын нийлбэр онооны хамаарал. 0.20-оос дээш бол асуулт шалгалтын зорилготой нийцэж байна.',
+    'Сонголтын баганад ногоон нь зөв хариулт, шар нь дээд бүлэг доод бүлгээс олон сонгосон буруу хариулт (шалгах шаардлагатай).']
+    .forEach(t => { xMerge(ws, r, 1, r, nc, 'note'); ws.getCell(r, 1).value = t; ws.getRow(r).height = Math.ceil(t.length / 160) * 15 + 3; r++; });
+}
+
+function xMatrix(wb, ex, R, used) {
+  const name = xSheetName('Хариултын матриц', used), multiV = nVer(ex) > 1;
+  const ws = wb.addWorksheet(name, { properties: { tabColor: { argb: 'FF548235' } }, pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  let c = 1; const C = { no: c++, code: c++, name: c++, cls: c++ }; if (multiV) C.ver = c++;
+  C.items = Array.from({ length: ex.count }, () => c++); C.correct = c++; C.total = c++; C.pct = c++;
+  ws.getColumn(C.no).width = 5; ws.getColumn(C.code).width = 8; ws.getColumn(C.name).width = 28; ws.getColumn(C.cls).width = 9; if (C.ver) ws.getColumn(C.ver).width = 9;
+  C.items.forEach(k => { ws.getColumn(k).width = 4.2; }); [[C.correct, 8], [C.total, 9], [C.pct, 8]].forEach(([k, w]) => { ws.getColumn(k).width = w; });
+  xSet(ws, 1, 1, 'Хариултын матриц / Answer matrix', 'title'); ws.getRow(1).height = 22;
+  xSet(ws, 2, 1, 'Ногоон: зөв · Улаан: буруу · Саарал «–»: хариулаагүй · Шар «*»: олон хариулт бөглөсөн', 'sub');
+  const H = [[C.no, '№'], [C.code, 'Код'], [C.name, 'Сурагчийн нэр / Student name'], [C.cls, 'Анги'], ...(C.ver ? [[C.ver, 'Хувилбар']] : []), ...C.items.map((k, i) => [k, String(i + 1)]), [C.correct, 'Зөв'], [C.total, 'Нийт оноо'], [C.pct, '%']];
+  H.forEach(([k, t]) => xSet(ws, 4, k, t, 'hdr')); ws.getRow(4).height = 32;
+  let r = 4;
+  (multiV ? ex.versions : ['']).forEach(v => {
+    r++; xMerge(ws, r, 1, r, C.name, 'lab'); ws.getCell(r, 1).value = 'Зөв хариулт / Key' + (v ? ` (${v})` : '');
+    xSet(ws, r, C.cls, '', 'lab'); if (C.ver) xSet(ws, r, C.ver, v, 'lab');
+    C.items.forEach((k, i) => xSet(ws, r, k, keyOf(ex, v)[i] || '', 'lab', { h: 'center' })); [C.correct, C.total, C.pct].forEach(k => xSet(ws, r, k, '', 'lab'));
+  });
+  const head = r;
+  const list = R.recs.slice().sort((a, b) => className(a.cls).localeCompare(className(b.cls)) || String(a.code).localeCompare(String(b.code)));
+  list.forEach((x, k) => {
+    r++;
+    xSet(ws, r, C.no, k + 1, 'calc'); xSet(ws, r, C.code, String(x.code || ''), 'calc'); xSet(ws, r, C.name, x.name, 'calc', { h: 'left' }); xSet(ws, r, C.cls, x.cls ? className(x.cls) : '—', 'calc');
+    if (C.ver) xSet(ws, r, C.ver, x.at.version || '', 'calc');
+    C.items.forEach((col, i) => {
+      const a = (x.at.answers || [])[i] || '', it = x.items[i];
+      const o = !a ? { fill: XC.grey, color: XC.muted } : a === '*' ? { fill: XC.midF, color: XC.midT, b: true } : !it ? {} : it.ok ? { fill: XC.okF, color: XC.okT } : { fill: XC.badF, color: XC.badT, b: true };
+      xSet(ws, r, col, a || '–', null); xStyle(ws.getCell(r, col), 'calc', o);
+    });
+    xSet(ws, r, C.correct, x.sc.correct, 'calc'); xSet(ws, r, C.total, x.sc.total, 'calc', { b: true }); xSet(ws, r, C.pct, x.sc.pct / 100, 'calc', { fmt: '0%' });
+  });
+  ws.views = [{ state: 'frozen', xSplit: C.ver || C.cls, ySplit: head }];
+}
+
+function xDistribution(wb, ex, R, G, sheets, used) {
+  const name = xSheetName('Тархалт', used), st = settings();
+  const ws = wb.addWorksheet(name, { views: [{ showGridLines: false }], properties: { tabColor: { argb: 'FFBF8F00' } }, pageSetup: { paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const groups = sheets.map(s => ({ label: s.cname, sh: [s], recs: s.recs }));
+  if (sheets.length > 1) groups.push({ label: 'Бүгд / All', sh: sheets, recs: R.recs });
+  ws.getColumn(1).width = 30; groups.forEach((g, i) => { ws.getColumn(i + 2).width = 15; });
+  xSet(ws, 1, 1, 'Тархалт / Distribution', 'title'); ws.getRow(1).height = 22;
+  xSet(ws, 2, 1, ex.name, 'sub');
+  let r = 3;
+  const head = t => { xSet(ws, r, 1, t, 'hdr'); groups.forEach((g, i) => xSet(ws, r, i + 2, g.label, 'hdr')); ws.getRow(r).height = 30; };
+  const bars = (r0, r1) => groups.forEach((g, i) => ws.addConditionalFormatting({ ref: `${xCol(i + 2)}${r0}:${xCol(i + 2)}${r1}`, rules: [{ type: 'dataBar', priority: 1, gradient: false, minLength: 0, maxLength: 100, cfvo: [{ type: 'num', value: 0 }, { type: 'max' }], color: { argb: 'FF5B9BD5' } }] }));
+  head('Хувийн завсар / Score band'); let r0 = r + 1;
+  for (let b = 0; b < 10; b++) {
+    r++; const lo = b * 10, hi = b === 9 ? 100 : lo + 9;
+    xSet(ws, r, 1, `${lo}–${hi}%`, 'lab');
+    groups.forEach((g, i) => {
+      const f = g.sh.map(s => b === 9 ? `COUNTIFS(${s.rng(s.C.pct)},">="&${lo / 100})` : `COUNTIFS(${s.rng(s.C.pct)},">="&${lo / 100},${s.rng(s.C.pct)},"<"&${(lo + 10) / 100})`).join('+');
+      xSet(ws, r, i + 2, xF(f, g.recs.filter(x => Math.min(9, Math.floor(x.sc.pct / 10)) === b).length), 'calc', { fmt: '0' });
+    });
+  }
+  bars(r0, r);
+  r += 2; head('Түвшин / Level'); r0 = r + 1;
+  LEVEL_ORDER.forEach(k => {
+    r++; xSet(ws, r, 1, LEVELS[k][0], 'lab', { fill: { ext: XC.okF, sec: XC.midF, sup: XC.badF }[k], color: { ext: XC.okT, sec: XC.midT, sup: XC.badT }[k] });
+    groups.forEach((g, i) => xSet(ws, r, i + 2, xF(g.sh.map(s => `COUNTIF(${s.rng(s.C.level)},${xStr(LEVELS[k][0])})`).join('+'), g.recs.filter(x => x.lv === k).length), 'calc', { fmt: '0' }));
+  });
+  bars(r0, r);
+  r += 2; head('Үсгэн үнэлгээ / Grade'); r0 = r + 1;
+  st.grades.forEach(([gr]) => {
+    r++; xSet(ws, r, 1, gr, 'lab');
+    groups.forEach((g, i) => xSet(ws, r, i + 2, xF(g.sh.map(s => `COUNTIF(${s.rng(s.C.grade)},${xStr(gr)})`).join('+'), g.recs.filter(x => x.grade === gr).length), 'calc', { fmt: '0' }));
+  });
+  bars(r0, r);
+}
+
+async function exportReport(ex) {
+  if (!ex) return;
+  if (!attemptsOf(ex.id).length) { toast('Энэ шалгалтад засагдсан хуудас алга.', true); return; }
+  let ExcelJS;
+  try { ExcelJS = await loadExcelJS(); }
+  catch {
+    toast('Excel загварын сан ачаалагдсангүй. Энгийн Excel файлаар татлаа.', true);
+    if (window.XLSX) await offerFile(`${safeName(ex.name)} - үр дүн.xlsx`, xlsxBlob([['Үр дүн', resultRows(ex)], ['Асуулт', itemRows(ex)], ['Сурагчид', studentRows(studentsOf(ex.classId))]]));
+    return;
+  }
+  toast('Excel тайлан бэлтгэж байна…');
+  await new Promise(r => setTimeout(r, 20));
+  try {
+    const R = analyze(ex), used = new Set();
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'EduScan Mongolia'; wb.created = new Date(); wb.calcProperties.fullCalcOnLoad = true;
+    const G = xGuide(wb, ex, R, used);
+    const sheets = xClassSheets(wb, ex, R, G, used);
+    xSummary(wb, ex, R, G, sheets, used);
+    xItemSheet(wb, ex, R, used);
+    xMatrix(wb, ex, R, used);
+    xDistribution(wb, ex, R, G, sheets, used);
+    const buf = await wb.xlsx.writeBuffer();
+    await offerFile(`${safeName(ex.name)} - тайлан.xlsx`, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  } catch (e) { console.error(e); toast('Excel тайлан үүсгэж чадсангүй.', true); }
 }
 
 // =============== AI (Claude) ===============
@@ -2018,8 +2653,19 @@ function tabKey(d, ex) {
       ${LET.slice(0, ch).split('').map(L => `<button class="lb ${k === L ? 'on' : ''}" data-act="key" data-i="${i}" data-l="${L}" aria-label="${i + 1}-р асуулт ${L}">${L}</button>`).join('')}
       ${UI.showPts ? `<input type="number" class="qpts" data-qp="${i}" min="0" step="0.5" placeholder="${d.pointsEach}" value="${esc(d.points?.[i] ?? '')}" aria-label="${i + 1}-р асуултын оноо">` : ''}</div>`).join('')}</div>
     <p class="small muted">Дахин дарвал сонголт арилна. Кирилл А, В, С, Е, Д үсгийг бөөнөөр оруулахад латин A, B, C, E, D болгон хөрвүүлнэ.</p>
-  </div>`;
+  </div>
+  ${topicsCard(d)}`;
 }
+// topics: named question ranges; the report and the Excel workbook break results down by them
+function topicCounts(d) { const used = new Set(); return (d.topics || []).map(t => { const it = parseRange(t.range, d.count).filter(q => !used.has(q)); it.forEach(q => used.add(q)); return it.length; }).concat(d.count - used.size); }
+function topicsCard(d) {
+  const tps = d.topics || [], cn = topicCounts(d), free = cn[cn.length - 1];
+  return `<div class="card"><div class="spread"><h2>Сэдэв, хэсэг</h2><button class="btn" data-act="addTopic">${ic('plus')}Сэдэв нэмэх</button></div>
+    <p class="small muted">Асуултуудыг сэдэв, суралцахуйн зорилтоор бүлэглэвэл тайланд сэдэв тус бүрийн гүйцэтгэл, сурагч бүрийн сул сэдэв, Excel тайлангийн «Дэмжлэг хэрэгтэй хэсэг» багана гарна. Асуултын дугаарыг «1-10, 15» гэх мэтээр бичнэ. Заавал биш.</p>
+    ${tps.map((t, i) => `<div class="row"><input type="text" data-tp="name" data-i="${i}" value="${esc(t.name)}" placeholder="ж: Атомын бүтэц" style="flex:2 1 220px" aria-label="Сэдвийн нэр"><input type="text" data-tp="range" data-i="${i}" value="${esc(t.range)}" placeholder="ж: 1-10, 15" style="flex:1 1 130px" aria-label="Асуултын дугаар"><span class="small muted" data-tpc="${i}" style="min-width:74px">${cn[i]} асуулт</span><button class="btn sm danger" data-act="delTopic" data-i="${i}" aria-label="Сэдэв хасах">${ic('trash-2')}</button></div>`).join('')}
+    ${tps.length ? `<p class="small muted" data-tpc="free">${topicFreeText(d, free)}</p>` : ''}</div>`;
+}
+const topicFreeText = (d, free) => (free > 0 ? `${free} асуулт аль ч сэдэвт ороогүй тул «Бусад сонгох асуулт» хэсэгт тооцогдоно.` : 'Бүх асуулт сэдэвт хамрагдсан.') + ((d.written || []).length ? ' Задгай даалгавар «II хэсэг» гэж тусдаа тооцогдоно.' : '');
 function tabWritten(d) {
   const w = d.written || [], vs = nVer(d) > 1 ? d.versions : [''];
   const pair = (t, i, v) => {
@@ -2054,12 +2700,15 @@ function normalizeKey(d) {
   d.points = Array.from({ length: d.count }, (_, i) => { const v = d.points?.[i]; return v === '' || v == null || isNaN(v) ? null : Math.max(0, +v); });
   d.pointsEach = Math.max(0.5, +d.pointsEach || 1);
   d.penalty = Math.max(0, +d.penalty || 0);
+  d.topics = (d.topics || []).map(t => ({ name: String(t?.name || '').trim(), range: String(t?.range || '').trim() })).filter(t => t.name || t.range);
 }
 function validateDraft(d) {
   if (!String(d.name || '').trim()) return 'Шалгалтын нэрээ оруулна уу.';
   if (!(d.count >= 1 && d.count <= MAX_Q)) return `Асуултын тоо 1–${MAX_Q} байх ёстой.`;
   if ((d.written || []).some(w => !(+w.max > 0))) return 'Задгай даалгаврын дээд оноо 0-ээс их байх ёстой.';
   if (UI.examTab === 'written' && (d.written || []).some(w => !String(w.prompt || '').trim())) return 'Задгай даалгаврын агуулгыг бичнэ үү.';
+  const badTp = (d.topics || []).find(t => !t.name || !parseRange(t.range, d.count).length);
+  if (badTp) return badTp.name ? `«${badTp.name}» сэдвийн асуултын дугаарыг зөв бичнэ үү (ж: 1-10).` : 'Сэдвийн нэрийг бичнэ үү.';
   return '';
 }
 function saveDraft(opts = {}) {
@@ -2414,22 +3063,109 @@ function itemStats(ex, v = '') {
     return { n: i + 1, key, pts: qPts(ex, i), correct, dist, pc: has ? Math.round(correct / n * 100) : null, pb: Math.round(blank / n * 100), pw: has ? Math.round((as.length - correct - blank) / n * 100) : null };
   });
 }
-function histogram(ex) {
-  const bins = Array(10).fill(0);
-  attemptsOf(ex.id).forEach(a => { const p = a.score?.pct ?? 0; bins[Math.min(9, Math.floor(p / 10))]++; });
-  const max = Math.max(1, ...bins), W = 560, H = 210, pl = 34, pb = 30, pt = 12, bw = (W - pl - 10) / 10;
-  const ticks = [0, Math.ceil(max / 2), max];
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Дүнгийн тархалт">
-    ${ticks.map(t => { const y = H - pb - (t / max) * (H - pb - pt); return `<line x1="${pl}" x2="${W - 10}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${pl - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${t}</text>`; }).join('')}
-    ${bins.map((b, i) => { const h = (b / max) * (H - pb - pt), x = pl + i * bw + 4, y = H - pb - h; const col = i * 10 >= settings().thrQuality ? 'var(--ok)' : i * 10 + 10 <= settings().thrSuccess ? 'var(--bad)' : 'var(--primary)';
-      return `<rect x="${x}" y="${y}" width="${bw - 8}" height="${Math.max(0, h)}" rx="3" fill="${col}"/>${b ? `<text x="${x + (bw - 8) / 2}" y="${y - 4}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)">${b}</text>` : ''}<text x="${x + (bw - 8) / 2}" y="${H - pb + 16}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${i * 10}–${i === 9 ? 100 : i * 10 + 9}</text>`; }).join('')}
-    <text x="${W - 10}" y="${H - 2}" text-anchor="end" font-size="10.5" fill="var(--muted)">хувь (%)</text></svg>`;
+const toneOf = v => v == null ? '' : v < thrSupport() ? 'bad' : v < settings().thrSuccess ? 'warn' : 'ok';
+const PART_STATE = { bad: 'Дахин заах', warn: 'Бататгах', ok: 'Эзэмшсэн' };
+const pctTxt = v => v == null || isNaN(v) ? '—' : fmt(v) + '%';
+function histogram(R) {
+  const bins = R.bins, st = settings();
+  const max = Math.max(1, ...bins), W = 560, H = 236, pl = 34, pr = 10, pb = 30, pt = 34, bw = (W - pl - pr) / 10;
+  const ticks = [...new Set([0, Math.ceil(max / 2), max])];
+  const xAt = pct => pl + pct / 10 * bw;
+  const mark = (pct, label, y) => `<line x1="${xAt(pct)}" x2="${xAt(pct)}" y1="${y + 3}" y2="${H - pb}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"/><text x="${xAt(pct) + 4}" y="${y}" font-size="10.5" fill="var(--muted)">${label}</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Дүнгийн тархалт: ${bins.map((b, i) => `${i * 10}–${i === 9 ? 100 : i * 10 + 9}% ${b}`).join(', ')}">
+    ${ticks.map(t => { const y = H - pb - (t / max) * (H - pb - pt); return `<line x1="${pl}" x2="${W - pr}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${pl - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${t}</text>`; }).join('')}
+    ${bins.map((b, i) => { const h = (b / max) * (H - pb - pt), x = pl + i * bw + 4, y = H - pb - h, lo = i * 10, hi = i === 9 ? 100 : i * 10 + 9;
+      const col = lo >= st.thrQuality ? 'var(--ok)' : hi < st.thrSuccess ? 'var(--bad)' : 'var(--primary)';
+      return `<g><rect x="${x}" y="${y}" width="${bw - 8}" height="${Math.max(0, h)}" rx="4" fill="${col}"/><rect x="${pl + i * bw}" y="${pt}" width="${bw}" height="${H - pb - pt}" fill="transparent"><title>${lo}–${hi}%: ${b} сурагч</title></rect>
+        ${b ? `<text x="${x + (bw - 8) / 2}" y="${y - 4}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)">${b}</text>` : ''}<text x="${x + (bw - 8) / 2}" y="${H - pb + 16}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${lo}–${hi}</text></g>`; }).join('')}
+    ${mark(st.thrSuccess, 'амжилт ' + st.thrSuccess + '%', 11)}${st.thrQuality !== st.thrSuccess ? mark(st.thrQuality, 'чанар ' + st.thrQuality + '%', 24) : ''}
+    <text x="${W - pr}" y="${H - 2}" text-anchor="end" font-size="10.5" fill="var(--muted)">хувь (%)</text></svg>`;
 }
-function itemChart(items) {
-  const W = 560, H = 190, pl = 34, pb = 24, pt = 10, n = items.length, bw = (W - pl - 10) / n;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Асуулт бүрийн зөв хариулсан хувь">
-    ${[0, 50, 100].map(t => { const y = H - pb - t / 100 * (H - pb - pt); return `<line x1="${pl}" x2="${W - 10}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${pl - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${t}%</text>`; }).join('')}
-    ${items.map((it, i) => { const p = it.pc ?? 0, h = p / 100 * (H - pb - pt), x = pl + i * bw + 1; return `<rect x="${x}" y="${H - pb - h}" width="${Math.max(1, bw - 2)}" height="${h}" rx="1.5" fill="${p < 50 ? 'var(--bad)' : 'var(--primary)'}"><title>${it.n}-р асуулт: ${it.pc == null ? 'түлхүүргүй' : p + '%'}</title></rect>${n <= 30 || i % 5 === 4 ? `<text x="${x + bw / 2 - 1}" y="${H - pb + 14}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${it.n}</text>` : ''}`; }).join('')}</svg>`;
+function levelBlock(R) {
+  const st = settings(), thr = { ext: `≥ ${st.thrQuality}%`, sec: `${st.thrSuccess}–${st.thrQuality}%`, sup: `< ${st.thrSuccess}%` };
+  const maxG = Math.max(1, ...R.grades.map(g => g[1]));
+  return `<div class="card"><h2>Түвшин ба үнэлгээ</h2>
+    <div class="lvlbar" role="img" aria-label="${LEVEL_ORDER.map(k => `${LEVELS[k][0]} ${R.lv[k]}`).join(', ')}">${LEVEL_ORDER.map(k => R.lv[k] ? `<span class="lvl-${k}" style="flex:${R.lv[k]}" title="${LEVELS[k][0]}: ${R.lv[k]} сурагч">${Math.round(R.lv[k] / R.n * 100)}%</span>` : '').join('')}</div>
+    <div class="lvlleg">${LEVEL_ORDER.map(k => `<div><i class="lvl-${k}"></i><span><b>${LEVELS[k][0]}</b> <span class="small muted">${thr[k]}</span></span><span class="mono">${R.lv[k]}</span></div>`).join('')}</div>
+    <div class="gradebars"><span class="eyebrow">Үсгэн үнэлгээ</span>${R.grades.map(([g, c]) => `<div class="gb"><b>${g}</b><div class="bar wide"><i style="width:${c / maxG * 100}%"></i></div><span class="mono">${c}</span></div>`).join('')}</div></div>`;
+}
+function partsBlock(R, showClasses) {
+  const st = settings(), ex = R.ex;
+  const rows = R.parts.map((p, j) => {
+    const v = R.partPct[j], tone = toneOf(v);
+    return `<div class="prow"><div class="pname"><b>${esc(p.name)}</b><span class="small muted">${[p.items.length ? p.items.length + ' асуулт' : '', p.written.length ? p.written.length + ' задгай' : '', fmt(p.max) + ' оноо'].filter(Boolean).join(' · ')}</span></div>
+      <div class="pbar" title="${esc(p.name)}: ${pctTxt(v)}"><i class="${tone}" style="width:${Math.max(0, Math.min(100, v || 0))}%"></i><em style="left:${thrSupport()}%" title="Дэмжлэгийн босго ${thrSupport()}%"></em><em class="s" style="left:${st.thrSuccess}%" title="Амжилтын босго ${st.thrSuccess}%"></em></div>
+      <span class="mono pv">${pctTxt(v)}</span>${tone ? `<span class="pill ${tone}">${PART_STATE[tone]}</span>` : '<span></span>'}</div>`;
+  }).join('');
+  const heat = showClasses && R.classes.length > 1 ? `<div class="tablebox"><table><thead><tr><th>Хэсэг</th>${R.classes.map(c => `<th class="num">${esc(c.name)}</th>`).join('')}</tr></thead><tbody>
+    ${R.parts.map((p, j) => `<tr><td>${esc(p.name)}</td>${R.classes.map(c => `<td class="num heat ${toneOf(c.partPct[j])}">${pctTxt(c.partPct[j])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '';
+  return `<div class="card"><div class="spread"><h2>Хэсэг, сэдвийн гүйцэтгэл</h2><span class="small muted">Тасархай шугам: дэмжлэгийн босго ${thrSupport()}%, амжилтын босго ${st.thrSuccess}%</span></div>
+    <div class="parts">${rows}</div>${heat}
+    ${!(ex.topics || []).length ? `<p class="small muted">${ic('info')} Асуултуудыг сэдвээр бүлэглэвэл сэдэв тус бүрийн гүйцэтгэл, сурагч бүрийн сул сэдэв гарна. <button class="btn link" data-act="openExam" data-id="${ex.id}" data-tab="key">Сэдэв тохируулах →</button></p>` : ''}</div>`;
+}
+function groupTable(title, groups, R) {
+  if (groups.length < 2) return '';
+  const mx = Math.max(...groups.map(g => g.mean || 0), 1);
+  return `<div class="card"><h2>${title}</h2><div class="tablebox"><table><thead><tr><th></th><th class="num">Сурагч</th><th class="num">Дундаж</th><th></th><th class="num">Медиан</th><th class="num">Ст. хазайлт</th><th class="num">Амжилт</th><th class="num">Чанар</th>${LEVEL_ORDER.map(k => `<th class="num" title="${LEVELS[k][0]}">${{ ext: 'Ахисан', sec: 'Хангалттай', sup: 'Дэмжлэг' }[k]}</th>`).join('')}</tr></thead><tbody>
+    ${groups.map(g => `<tr><td class="name">${esc(g.name)}</td><td class="num">${g.n}</td><td class="num"><b>${pctTxt(g.mean)}</b></td><td><div class="bar"><i style="width:${(g.mean || 0) / mx * 100}%"></i></div></td><td class="num">${pctTxt(g.median)}</td><td class="num">${isNaN(g.sd) ? '—' : fmt(g.sd)}</td><td class="num">${pctTxt(g.success)}</td><td class="num">${pctTxt(g.quality)}</td>${LEVEL_ORDER.map(k => `<td class="num">${g.lv[k]}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div></div>`;
+}
+const IQ_COL = { good: 'var(--ok)', fair: 'var(--primary)', weak: 'var(--warn)', bad: 'var(--bad)', easy: 'var(--muted)', few: 'var(--muted)' };
+function itemMap(R) {
+  const items = R.items.filter(it => it.p != null && it.D != null);
+  if (!items.length) return `<p class="muted small">${ic('info')} Ялгах чадварыг тооцоход дор хаяж 6 сурагчийн хуудас шаардлагатай.</p>`;
+  const W = 560, H = 290, pl = 44, pr = 12, pt = 12, pb = 40, y0 = -0.4, y1 = 1;
+  const X = p => pl + p * (W - pl - pr), Y = d => pt + (y1 - Math.max(y0, Math.min(y1, d))) / (y1 - y0) * (H - pt - pb);
+  const band = (a, b, col) => `<rect x="${pl}" y="${Y(b)}" width="${W - pl - pr}" height="${Y(a) - Y(b)}" fill="${col}"/>`;
+  const counts = {}; items.forEach(it => { counts[it.q] = (counts[it.q] || 0) + 1; });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Асуултын зураглал: хүндрэл ба ялгах чадвар">
+    ${band(y0, 0, 'var(--bad-soft)')}${band(0, 0.2, 'var(--warn-soft)')}${band(0.3, y1, 'var(--ok-soft)')}
+    ${[-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1].map(d => `<line x1="${pl}" x2="${W - pr}" y1="${Y(d)}" y2="${Y(d)}" stroke="var(--line)" stroke-width="${d === 0 ? 1.5 : 1}"/><text x="${pl - 6}" y="${Y(d) + 4}" text-anchor="end" font-size="10.5" fill="var(--muted)">${d.toFixed(1)}</text>`).join('')}
+    ${[0, 0.25, 0.5, 0.75, 1].map(p => `<text x="${X(p)}" y="${H - pb + 16}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${p * 100}%</text>`).join('')}
+    <text x="${(pl + W - pr) / 2}" y="${H - 4}" text-anchor="middle" font-size="11" fill="var(--muted)">Зөв хариулсан хувь (баруун тийш хялбар)</text>
+    <text transform="translate(12 ${(pt + H - pb) / 2}) rotate(-90)" text-anchor="middle" font-size="11" fill="var(--muted)">Ялгах чадвар (D)</text>
+    ${items.map(it => `<g><circle cx="${X(it.p)}" cy="${Y(it.D)}" r="7" fill="${IQ_COL[it.q]}" stroke="var(--surface)" stroke-width="2"/>${it.q !== 'good' && it.q !== 'fair' || it.p < 0.35 ? `<text x="${X(it.p)}" y="${Y(it.D) - 10}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink)">${it.n}</text>` : ''}<circle cx="${X(it.p)}" cy="${Y(it.D)}" r="12" fill="transparent"><title>${it.n}-р асуулт · зөв ${Math.round(it.p * 100)}% · D ${fmt2(it.D)} · ${IQ[it.q][0]}</title></circle></g>`).join('')}
+  </svg>
+  <div class="legend">${['good', 'fair', 'weak', 'easy', 'bad'].map(q => `<span><i style="background:${IQ_COL[q]}"></i>${IQ[q][0]} <b class="mono">${counts[q] || 0}</b></span>`).join('')}</div>
+  <p class="small muted">Ногоон бүс: ялгах чадвар сайн (D ≥ 0.30). Шар: сул (0–0.20). Улаан: сөрөг, түлхүүрийг шалгах. Анхаарах асуултын дугаарыг харуулсан; бусдыг заагчаар харна. D нь дээд ${R.G}, доод ${R.G} сурагчийн зөв хариулсан хувийн зөрүү.</p>`;
+}
+function flaggedItems(R) {
+  const rank = it => it.q === 'bad' ? 0 : it.p < 0.35 ? 1 : it.q === 'weak' ? 2 : it.p >= 0.9 ? 3 : 9;
+  const list = R.items.filter(it => it.p != null && rank(it) < 9).sort((a, b) => rank(a) - rank(b) || a.p - b.p);
+  if (!list.length) return `<p class="muted">${ic('circle-check')} Онцгой анхаарах асуулт алга. Асуултууд сурагчдыг сайн ялгаж байна.</p>`;
+  return `<div class="flags">${list.slice(0, 10).map(it => `<div class="flagrow"><span class="qbadge" style="background:${IQ_COL[rank(it) === 1 ? 'weak' : rank(it) === 3 ? 'easy' : it.q]}">${it.n}</span><div class="stack" style="gap:2px"><b class="small">${diffLabel(it.p)} · зөв ${Math.round(it.p * 100)}%${it.D != null ? ' · D ' + fmt2(it.D) : ''}${it.part && R.parts.length > 1 ? ' · ' + esc(it.part) : ''}</b><span class="small muted">${esc(it.tip)}</span></div></div>`).join('')}</div>
+    ${list.length > 10 ? `<p class="small muted">Бусад ${list.length - 10} асуултыг «Асуултууд» хүснэгтээс харна уу.</p>` : ''}`;
+}
+function findings(R) {
+  const st = settings(), out = [];
+  out.push(['chart-column', '', `<b>${R.n}</b> сурагчийн дундаж гүйцэтгэл <b>${pctTxt(R.mean)}</b> (медиан ${pctTxt(R.median)}${isNaN(R.sd) ? '' : `, стандарт хазайлт ${fmt(R.sd)}`}). Амжилт <b>${pctTxt(R.success)}</b>, чанар <b>${pctTxt(R.quality)}</b>.`]);
+  out.push([R.lv.sup ? 'life-buoy' : 'circle-check', R.lv.sup > R.n / 3 ? 'bad' : R.lv.sup ? 'warn' : 'ok', `${R.lv.ext} сурагч ахисан, ${R.lv.sec} сурагч хангалттай түвшинд байна.${R.lv.sup ? ` <b>${R.lv.sup} сурагч</b> амжилтын босгод (${st.thrSuccess}%) хүрээгүй тул нэмэлт дэмжлэг шаардлагатай.` : ' Бүх сурагч амжилтын босгод хүрсэн.'}`]);
+  const pp = R.parts.map((p, j) => [p, R.partPct[j]]).filter(x => x[1] != null);
+  if (pp.length > 1) {
+    const s = pp.slice().sort((a, b) => a[1] - b[1]), lo = s[0], hi = s[s.length - 1];
+    out.push(['layers', toneOf(lo[1]), `Хамгийн сул хэсэг: <b>«${esc(lo[0].name)}»</b> (${pctTxt(lo[1])}). Хамгийн сайн: «${esc(hi[0].name)}» (${pctTxt(hi[1])}).${lo[1] < thrSupport() ? ' Сул хэсгийг дахин заахыг зөвлөж байна.' : ''}`]);
+  }
+  const hard = R.items.filter(it => it.p != null && it.p < 0.6).sort((a, b) => a.p - b.p).slice(0, 3);
+  if (hard.length) out.push(['target', 'warn', `Хамгийн их алдсан асуулт: ${hard.map(it => `<b>${it.n}</b> (зөв ${Math.round(it.p * 100)}%)`).join(', ')}. Эдгээрийг дахин заах, давтлагад оруулна уу.`]);
+  const bad = R.items.filter(it => it.q === 'bad');
+  if (bad.length) out.push(['key-round', 'bad', `${bad.map(it => `<b>${it.n}</b>`).join(', ')}-р асуултын ялгах чадвар сөрөг: сайн сурдаг сурагчид буруу хариулсан. Түлхүүрийг шалгана уу.`]);
+  const w = R.written.filter(x => x.pct != null).sort((a, b) => a.pct - b.pct)[0];
+  if (w && R.written.length) out.push(['pen-line', toneOf(w.pct), `Задгай даалгаврын хамгийн бага гүйцэтгэл: <b>${w.n}-р даалгавар</b> (${pctTxt(w.pct)}, ${w.zero} сурагч 0 оноо авсан).`]);
+  if (R.classes.length > 1) { const s = R.classes.slice().sort((a, b) => b.mean - a.mean); out.push(['school', '', `Ангиудын дундаж: ${s.map(c => `${esc(c.name)} <b>${pctTxt(c.mean)}</b>`).join(', ')}. Хамгийн их зөрүү ${fmt(s[0].mean - s[s.length - 1].mean)} нэгж хувь.`]); }
+  if (R.versions.length > 1) { const s = R.versions.slice().sort((a, b) => b.mean - a.mean); out.push(['files', '', `Хувилбарын дундаж: ${s.map(c => `${esc(c.name)} <b>${pctTxt(c.mean)}</b>`).join(', ')}.${s[0].mean - s[s.length - 1].mean >= 10 ? ' Зөрүү их байгаа тул хувилбаруудын хүндрэл тэнцүү эсэхийг шалгана уу.' : ''}`]); }
+  if (R.alpha != null) out.push(['shield-check', R.alpha >= 0.7 ? 'ok' : 'warn', `Шалгалтын найдвартай байдал α = <b>${fmt2(R.alpha)}</b> (${alphaLabel(R.alpha)})${R.sem != null ? `, хэмжилтийн стандарт алдаа ±${fmt(R.sem)} оноо` : ''}.${R.alpha < 0.7 ? ' Асуултын тоог нэмэх, ялгах чадвар сул асуултыг сайжруулахыг зөвлөж байна.' : ''}`]);
+  const pend = R.recs.filter(r => r.sc.wPending).length;
+  if (pend) out.push(['clock', 'warn', `${pend} сурагчийн задгай даалгаврын оноо дутуу тул дүн эцсийн биш.`]);
+  if (R.n < 10) out.push(['info', '', 'Сурагчийн тоо цөөн тул ялгах чадвар, найдвартай байдлын үзүүлэлтийг ойролцоо утга гэж үзнэ үү.']);
+  return out;
+}
+function supportTable(R, multiClass) {
+  const list = R.recs.filter(r => r.lv === 'sup' || r.weak.length).sort((a, b) => a.sc.pct - b.sc.pct);
+  if (!list.length) return `<p class="muted">${ic('circle-check')} Бүх сурагч амжилтын босгод хүрч, бүх хэсэгт ${thrSupport()}%-иас дээш гүйцэтгэсэн.</p>`;
+  return `<div class="tablebox"><table><thead><tr><th>Сурагч</th>${multiClass ? '<th>Анги</th>' : ''}<th class="num">Оноо</th><th class="num">Хувь</th><th>Түвшин</th><th>Дэмжлэг хэрэгтэй хэсэг</th></tr></thead><tbody>
+    ${list.map(r => `<tr class="click" data-act="editAttempt" data-id="${r.at.id}"><td class="name">${esc(r.name)} <span class="mono small muted">${esc(r.code)}</span></td>${multiClass ? `<td>${esc(className(r.cls))}</td>` : ''}<td class="num">${fmt(r.sc.total)}/${fmt(r.sc.max)}</td><td class="num">${pctPill(r.sc.pct)}</td><td>${levelPill(r.lv)}</td>
+      <td class="wrapcell">${r.weak.length ? r.weak.map(w => `<span class="pill warn">${esc(w)}</span>`).join(' ') : '<span class="muted">—</span>'}</td></tr>`).join('')}
+  </tbody></table></div>`;
 }
 function pReports() {
   const exs = S.exams.filter(x => attemptsOf(x.id).length || x.status !== 'archived');
@@ -2439,55 +3175,89 @@ function pReports() {
   const s = examStats(ex), st = settings();
   const head = `<div class="spread"><h1>Тайлан, статистик</h1><select id="rpExam" aria-label="Шалгалт" style="max-width:100%">${examOpts(ex.id, exs)}</select></div>`;
   if (!s.n) return head + `<div class="card empty"><p class="muted">«${esc(ex.name)}» шалгалтад засагдсан хуудас алга.</p><button class="btn primary" data-act="toGrade">Шалгалт засах</button></div>`;
-  let ranks = rankList(ex);
-  const q = UI.reportQ.trim().toLowerCase();
-  if (q) ranks = ranks.filter(r => (r.at.name + ' ' + r.at.studentCode).toLowerCase().includes(q));
-  const { k, d } = UI.reportSort;
-  const key = { rank: r => r.rank, name: r => r.at.name, code: r => r.at.studentCode, correct: r => -r.score.correct, total: r => -r.score.total }[k];
-  ranks.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * d; });
+  const clsIds = [...new Set(attemptsOf(ex.id).map(a => clsOfAttempt(ex, a)))];
+  if (UI.repClass && !clsIds.includes(UI.repClass)) UI.repClass = '';
   if (UI.repV && !(ex.versions || []).includes(UI.repV)) UI.repV = '';
-  const items = itemStats(ex, UI.repV);
-  const itemsSorted = UI.itemSort === 'hard' ? items.slice().sort((a, b) => (a.pc ?? 101) - (b.pc ?? 101)) : items;
-  const th = (id, l, cls = '') => `<th class="sort ${cls}" data-act="sortRep" data-k="${id}">${l}${k === id ? (d > 0 ? ' ↑' : ' ↓') : ''}</th>`;
-  const grades = st.grades.map(([g]) => [g, attemptsOf(ex.id).filter(a => letter(a.score?.pct || 0) === g).length]);
-  return head + `
-  <p class="muted">${esc(ex.subject || '')} · ${esc(className(ex.classId))} · ${esc(ex.date)} · ${ex.count} асуулт${(ex.written || []).length ? ` + ${ex.written.length} задгай` : ''}</p>
-  ${s.stale ? `<div class="notice warn">${ic('refresh-cw')}<span>${s.stale} үр дүн хуучин түлхүүрээр тооцоологдсон. <button class="btn link" data-act="recalcExam" data-id="${ex.id}">Дахин тооцох</button></span></div>` : ''}
-  <div class="stats">
-    <div class="stat"><span class="eyebrow">Засагдсан</span><b>${s.n}</b></div>
-    <div class="stat"><span class="eyebrow">Дундаж</span><b>${fmt(s.avg)}%</b><span class="small muted">${fmt(s.avgPts)} / ${fmt(s.maxPts)} оноо</span></div>
-    <div class="stat"><span class="eyebrow">Дээд / Доод</span><b>${fmt(s.max)}% / ${fmt(s.min)}%</b></div>
-    <div class="stat"><span class="eyebrow">Амжилт (≥${st.thrSuccess}%)</span><b>${s.success}%</b></div>
-    <div class="stat"><span class="eyebrow">Чанар (≥${st.thrQuality}%)</span><b>${s.quality}%</b></div>
-  </div>
-  <div class="grid2">
-    <div class="card"><div class="spread"><h2>Дүнгийн тархалт</h2><span class="small muted">${grades.map(([g, n]) => `${g}: ${n}`).join(' · ')}</span></div>${histogram(ex)}</div>
-    <div class="card"><h2>Асуулт бүрийн зөв хариулсан хувь</h2>${itemChart(items)}<p class="small muted">Улаан: 50%-иас бага зөв хариулсан асуулт.</p></div>
-  </div>
-  <div class="spread"><h2>Сурагчдын эрэмбэ</h2><div class="row">
-    <input type="search" id="rpQ" placeholder="Сурагч хайх" value="${esc(UI.reportQ)}" aria-label="Сурагч хайх">
-    <button class="btn" data-act="expResults" data-fmt="xlsx">${ic('file-spreadsheet')}Excel</button>
-    <button class="btn" data-act="expResults" data-fmt="csv">${ic('download')}CSV</button>
-    <button class="btn" data-act="slips">${ic('file-down')}Дүнгийн хуудас (PDF)</button></div></div>
-  <div class="tablebox"><table><thead><tr>${th('rank', 'Байр', 'num')}${th('code', 'Код')}${th('name', 'Сурагч')}${th('correct', 'Зөв', 'num')}<th class="num">Буруу</th><th class="num">Хоосон</th>${(ex.written || []).length ? '<th class="num">Задгай</th>' : ''}${th('total', 'Оноо', 'num')}<th class="num">Хувь</th><th>Үнэлгээ</th><th></th></tr></thead><tbody>
-    ${ranks.map(r => { const sc = r.score, stale = r.at.keyVersion !== ex.keyVersion, fl = (r.at.flags || []).some(Boolean);
-      return `<tr class="click" data-act="editAttempt" data-id="${r.at.id}"><td class="num"><b>${r.rank}</b></td><td class="mono">${esc(r.at.studentCode)}</td>
-      <td class="name">${esc(r.at.name)} ${nVer(ex) > 1 ? verPill(r.at.version) : ''} ${stale ? '<span class="pill warn">хуучин түлхүүр</span>' : ''}${fl ? ' <span class="pill warn">эргэлзээтэй</span>' : ''}${sc.wPending ? ' <span class="pill">задгай дутуу</span>' : ''}</td>
-      <td class="num">${sc.correct}</td><td class="num">${sc.wrong}</td><td class="num">${sc.blank}</td>${(ex.written || []).length ? `<td class="num">${fmt(sc.wPts)}/${fmt(sc.wMax)}</td>` : ''}
-      <td class="num"><b>${fmt(sc.total)}</b>/${fmt(sc.max)}</td><td class="num">${pctPill(sc.pct)}</td><td><b>${letter(sc.pct)}</b></td>
-      <td class="num"><button class="btn sm" data-act="slipOne" data-id="${r.at.id}" title="Дүнгийн хуудас" aria-label="Дүнгийн хуудас">${ic('file-down')}</button>
-        <button class="btn sm danger" data-act="delAttempt" data-id="${r.at.id}" aria-label="Устгах">${ic('trash-2')}</button></td></tr>`; }).join('')}
-  </tbody></table></div>
-  <div class="spread"><h2>Асуулт тус бүрийн шинжилгээ</h2><div class="row">
-    ${nVer(ex) > 1 ? `<select id="rpVer" aria-label="Хувилбар">${opt('', 'Бүх хувилбар', UI.repV)}${ex.versions.map(v => opt(v, v + ' хувилбар (' + attemptsOf(ex.id).filter(a => a.version === v).length + ')', UI.repV)).join('')}</select>` : ''}
-    <select id="itemSort" aria-label="Эрэмбэ">${opt('num', 'Дугаараар', UI.itemSort)}${opt('hard', 'Хамгийн их алдсанаас', UI.itemSort)}</select>
-    <button class="btn" data-act="expItems" data-fmt="xlsx">${ic('file-spreadsheet')}Excel</button><button class="btn" data-act="expItems" data-fmt="csv">${ic('download')}CSV</button></div></div>
-  ${nVer(ex) > 1 && !UI.repV ? '<p class="small muted">Бүх хувилбар: сурагч бүрийг өөрийн хувилбарын түлхүүрээр тооцсон. Сонголтын тархалтыг зөв унших бол хувилбараа сонгоно уу.</p>' : ''}
-  <div class="tablebox"><table><thead><tr><th class="num">№</th><th>Зөв</th><th class="num">Зөв (тоо)</th><th class="num">Зөв %</th><th></th><th class="num">Буруу %</th><th class="num">Хоосон %</th><th>Сонголт бүрийг сонгосон тоо</th></tr></thead><tbody>
-    ${itemsSorted.map(it => `<tr><td class="num mono">${it.n}</td><td><b>${it.key || '—'}</b></td><td class="num">${it.key ? it.correct : '—'}</td><td class="num">${it.pc == null ? '—' : it.pc + '%'}</td>
-      <td><div class="bar"><i class="${it.pc != null && it.pc < 50 ? 'lo' : ''}" style="width:${it.pc || 0}%"></i></div></td><td class="num">${it.pw == null ? '—' : it.pw + '%'}</td><td class="num">${it.pb}%</td>
-      <td class="dist">${LET.slice(0, ex.choices).split('').map(L => `<span class="${L === it.key ? 'k' : ''}">${L}:${it.dist[L] || 0}</span>`).join('')}${it.dist['*'] ? `<span>олон:${it.dist['*']}</span>` : ''}</td></tr>`).join('')}
-  </tbody></table></div>`;
+  const R = analyze(ex, { classId: UI.repClass, version: UI.repV });
+  const tab = UI.repTab || 'overview', multiClass = !UI.repClass && R.classes.length > 1;
+  const expected = (UI.repClass ? [UI.repClass] : clsIds.filter(Boolean)).reduce((a, id) => a + studentsOf(id).filter(x => x.active !== false).length, 0);
+  const filters = `<div class="filters">
+    ${clsIds.length > 1 ? `<select id="rpClass" aria-label="Анги">${opt('', 'Бүх анги', UI.repClass)}${clsIds.map(id => opt(id, id ? className(id) : 'Ангигүй', UI.repClass)).join('')}</select>` : ''}
+    ${nVer(ex) > 1 ? `<select id="rpVer" aria-label="Хувилбар">${opt('', 'Бүх хувилбар', UI.repV)}${ex.versions.map(v => opt(v, v + ' хувилбар', UI.repV)).join('')}</select>` : ''}
+    <span class="small muted">${esc(ex.subject || '')} · ${esc(className(ex.classId))} · ${esc(ex.date)} · ${ex.count} асуулт${(ex.written || []).length ? ` + ${ex.written.length} задгай` : ''}</span>
+    <span class="row" style="margin-left:auto"><button class="btn primary" data-act="expReport">${ic('file-spreadsheet')}Excel тайлан</button><button class="btn" data-act="expResults" data-fmt="csv">${ic('download')}CSV</button><button class="btn" data-act="slips">${ic('file-down')}Дүнгийн хуудас</button></span></div>`;
+  const notices = `${s.stale ? `<div class="notice warn">${ic('refresh-cw')}<span>${s.stale} үр дүн хуучин түлхүүрээр хадгалагдсан. Тайлан шинэ түлхүүрээр тооцоолж байна. <button class="btn link" data-act="recalcExam" data-id="${ex.id}">Хадгалсан дүнг шинэчлэх</button></span></div>` : ''}`;
+  if (!R.n) return head + filters + `<div class="card empty"><p class="muted">Энэ шүүлтүүрт тохирох хуудас алга.</p></div>`;
+  const tabs = `<div class="tabs" role="tablist">${[['overview', 'Ерөнхий дүгнэлт'], ['students', `Сурагчид (${R.n})`], ['items', 'Асуултын шинжилгээ']].map(([k, l]) => `<button role="tab" class="${tab === k ? 'on' : ''}" data-act="repTab" data-tab="${k}">${l}</button>`).join('')}</div>`;
+  let body = '';
+  if (tab === 'overview') {
+    body = `<div class="card"><h2>Гол дүгнэлт</h2><ul class="find">${findings(R).map(([i, t, h]) => `<li class="${t}">${ic(i)}<span>${h}</span></li>`).join('')}</ul></div>
+    <div class="stats">
+      <div class="stat">${ic('users')}<span class="eyebrow">Засагдсан</span><b>${R.n}${expected && !UI.repV ? `<span class="small muted"> / ${expected}</span>` : ''}</b><span class="small muted">${R.classes.length > 1 ? R.classes.length + ' анги' : esc(className(R.classes[0]?.id))}</span></div>
+      <div class="stat">${ic('gauge')}<span class="eyebrow">Дундаж</span><b>${pctTxt(R.mean)}</b><span class="small muted">${fmt(R.meanPts)} / ${fmt(R.maxPts)} оноо</span></div>
+      <div class="stat">${ic('sigma')}<span class="eyebrow">Медиан · ст. хазайлт</span><b>${pctTxt(R.median)}</b><span class="small muted">σ = ${isNaN(R.sd) ? '—' : fmt(R.sd)} · ${fmt(R.min)}–${fmt(R.max)}%</span></div>
+      <div class="stat">${ic('circle-check')}<span class="eyebrow">Амжилт (≥${st.thrSuccess}%)</span><b>${pctTxt(R.success)}</b><span class="small muted">${R.n - R.lv.sup} сурагч</span></div>
+      <div class="stat">${ic('award')}<span class="eyebrow">Чанар (≥${st.thrQuality}%)</span><b>${pctTxt(R.quality)}</b><span class="small muted">${R.lv.ext} сурагч</span></div>
+      <div class="stat">${ic('shield-check')}<span class="eyebrow">Найдвартай байдал α</span><b>${fmt2(R.alpha)}</b><span class="small muted">${R.alpha == null ? 'тооцоход өгөгдөл бага' : alphaLabel(R.alpha) + (R.sem != null ? ` · ±${fmt(R.sem)} оноо` : '')}</span></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2>Дүнгийн тархалт</h2>${histogram(R)}</div>
+      ${levelBlock(R)}
+    </div>
+    ${partsBlock(R, multiClass)}
+    ${multiClass ? groupTable('Ангиудын харьцуулалт', R.classes, R) : ''}
+    ${!UI.repV ? groupTable('Хувилбаруудын харьцуулалт', R.versions, R) : ''}`;
+  } else if (tab === 'students') {
+    let list = R.recs.slice();
+    const q = UI.reportQ.trim().toLowerCase();
+    if (q) list = list.filter(r => (r.name + ' ' + r.code).toLowerCase().includes(q));
+    const { k, d } = UI.reportSort;
+    const key = { rank: r => r.rank, name: r => r.name, code: r => r.code, correct: r => -r.sc.correct, total: r => -r.sc.total }[k] || (r => r.rank);
+    list.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * d; });
+    const th = (id, l, cls = '') => `<th class="sort ${cls}" data-act="sortRep" data-k="${id}">${l}${k === id ? (d > 0 ? ' ↑' : ' ↓') : ''}</th>`;
+    const showParts = R.parts.length > 1;
+    body = `<div class="card"><div class="spread"><h2>Дэмжлэг хэрэгтэй сурагчид</h2><span class="small muted">Амжилтын босгоос (${st.thrSuccess}%) доош, эсвэл аль нэг хэсэгт ${thrSupport()}%-иас доош</span></div>${supportTable(R, multiClass)}</div>
+    <div class="spread"><h2>Сурагчдын эрэмбэ</h2><input type="search" id="rpQ" placeholder="Сурагч хайх" value="${esc(UI.reportQ)}" aria-label="Сурагч хайх"></div>
+    <div class="tablebox"><table><thead><tr>${th('rank', 'Байр', 'num')}${th('code', 'Код')}${th('name', 'Сурагч')}${multiClass ? '<th>Анги</th>' : ''}${th('correct', 'Зөв', 'num')}${showParts ? '' : '<th class="num">Буруу</th><th class="num">Хоосон</th>'}${showParts ? R.parts.map(p => `<th class="num" title="${esc(p.name)}" style="white-space:normal;min-width:72px">${esc(p.name.length > 22 ? p.name.slice(0, 21) + '…' : p.name)}</th>`).join('') : (ex.written || []).length ? '<th class="num">Задгай</th>' : ''}${th('total', 'Оноо', 'num')}<th class="num">Хувь</th><th>Үнэлгээ</th><th>Түвшин</th><th></th></tr></thead><tbody>
+      ${list.map(r => { const sc = r.sc, stale = r.at.keyVersion !== ex.keyVersion, fl = (r.at.flags || []).some(Boolean);
+        return `<tr class="click" data-act="editAttempt" data-id="${r.at.id}"><td class="num"><b>${r.rank}</b></td><td class="mono">${esc(r.code)}</td>
+        <td class="name">${esc(r.name)} ${nVer(ex) > 1 ? verPill(r.at.version) : ''} ${stale ? '<span class="pill warn">хуучин түлхүүр</span>' : ''}${fl ? ' <span class="pill warn">эргэлзээтэй</span>' : ''}${sc.wPending ? ' <span class="pill">задгай дутуу</span>' : ''}</td>${multiClass ? `<td>${esc(className(r.cls))}</td>` : ''}
+        <td class="num">${sc.correct}</td>${showParts ? '' : `<td class="num">${sc.wrong}</td><td class="num">${sc.blank}</td>`}
+        ${showParts ? r.ps.map(p => `<td class="num heat ${toneOf(p.pct)}">${pctTxt(p.pct)}</td>`).join('') : (ex.written || []).length ? `<td class="num">${fmt(sc.wPts)}/${fmt(sc.wMax)}</td>` : ''}
+        <td class="num"><b>${fmt(sc.total)}</b>/${fmt(sc.max)}</td><td class="num">${pctPill(sc.pct)}</td><td><b>${r.grade}</b></td><td>${levelPill(r.lv)}</td>
+        <td class="num"><button class="btn sm" data-act="slipOne" data-id="${r.at.id}" title="Дүнгийн хуудас" aria-label="Дүнгийн хуудас">${ic('file-down')}</button>
+          <button class="btn sm danger" data-act="delAttempt" data-id="${r.at.id}" aria-label="Устгах">${ic('trash-2')}</button></td></tr>`; }).join('')}
+    </tbody></table></div>`;
+  } else {
+    const sorters = { num: (a, b) => a.n - b.n, hard: (a, b) => (a.p ?? 2) - (b.p ?? 2), disc: (a, b) => (a.D ?? 2) - (b.D ?? 2) };
+    const items = R.items.slice().sort(sorters[UI.itemSort] || sorters.num);
+    const showPart = R.parts.length > 1 && R.parts.some(p => p.topic);
+    body = `<div class="grid2">
+      <div class="card"><h2>Асуултын зураглал</h2>${itemMap(R)}</div>
+      <div class="card"><h2>Анхаарах асуултууд</h2>${flaggedItems(R)}</div>
+    </div>
+    <div class="spread"><h2>Асуулт тус бүрийн шинжилгээ</h2><div class="row">
+      <select id="itemSort" aria-label="Эрэмбэ">${opt('num', 'Дугаараар', UI.itemSort)}${opt('hard', 'Хамгийн их алдсанаас', UI.itemSort)}${opt('disc', 'Ялгах чадвар бага нь эхэндээ', UI.itemSort)}</select>
+      <button class="btn" data-act="expItems" data-fmt="csv">${ic('download')}CSV</button></div></div>
+    ${R.items.some(it => it.mixed) ? '<p class="small muted">Бүх хувилбар: сурагч бүрийг өөрийн хувилбарын түлхүүрээр тооцсон. Сонголтын тархалтыг зөв унших бол дээрээс хувилбараа сонгоно уу.</p>' : ''}
+    <div class="tablebox"><table class="items"><thead><tr><th class="num">№</th>${showPart ? '<th>Сэдэв</th>' : ''}<th>Түлхүүр</th><th class="num">Зөв %</th><th></th><th>Хүндрэл</th><th class="num" title="Дээд ба доод 27% бүлгийн зөв хариулсан хувийн зөрүү">D</th><th class="num" title="Асуулт ба бусад асуултын нийлбэр онооны хамаарал">r</th><th>Чанар</th><th>Сонголтын тархалт</th></tr></thead><tbody>
+      ${items.map(it => !it.keyed ? `<tr class="inactive"><td class="num mono">${it.n}</td>${showPart ? `<td>${esc(it.part)}</td>` : ''}<td colspan="8" class="muted">Түлхүүр оруулаагүй</td></tr>` : `<tr><td class="num mono">${it.n}</td>${showPart ? `<td class="small">${esc(it.part)}</td>` : ''}<td><b>${esc(it.key)}</b></td>
+        <td class="num">${Math.round(it.p * 100)}%</td><td><div class="bar"><i class="${it.p < 0.5 ? 'lo' : ''}" style="width:${it.p * 100}%"></i></div></td><td class="small">${diffLabel(it.p)}</td>
+        <td class="num">${fmt2(it.D)}</td><td class="num">${fmt2(it.r)}</td><td>${it.q === 'few' ? '<span class="muted small">—</span>' : `<span class="pill ${IQ[it.q][1]}">${IQ[it.q][0]}</span>`}</td>
+        <td class="dist">${it.mixed ? Object.entries(it.dist).filter(([o]) => o !== '–').map(([o, c]) => `<span>${o}:${c}</span>`).join('') : LET.slice(0, ex.choices).split('').map(L => `<span class="${L === it.key ? 'k' : it.badDistr.includes(L) ? 'bd' : ''}" title="${L}: нийт ${it.dist[L] || 0} · дээд бүлэг ${it.du[L] || 0} · доод бүлэг ${it.dl[L] || 0}">${L}:${it.dist[L] || 0}</span>`).join('')}${it.dist['*'] ? `<span title="Олон хариулт бөглөсөн">олон:${it.dist['*']}</span>` : ''}${it.dist['–'] ? `<span title="Хариулаагүй">–:${it.dist['–']}</span>` : ''}</td></tr>
+        ${it.q !== 'good' && it.q !== 'fair' && it.tip ? `<tr class="tiprow"><td></td><td colspan="${showPart ? 9 : 8}"><span class="tip ${IQ[it.q]?.[1] || ''}">${ic('lightbulb')}${esc(it.tip)}</span></td></tr>` : ''}`).join('')}
+    </tbody></table></div>
+    ${R.written.length ? `<h2>Задгай даалгавар</h2><div class="tablebox"><table><thead><tr><th>Даалгавар</th><th class="num">Дээд оноо</th><th class="num">Дундаж оноо</th><th class="num">Гүйцэтгэл</th><th></th><th class="num">0 оноо</th><th class="num">Бүтэн оноо</th><th class="num">Үнэлээгүй</th></tr></thead><tbody>
+      ${R.written.map(w => `<tr><td class="wrapcell"><b>${w.n}.</b> <span class="small muted">${esc(w.prompt.length > 90 ? w.prompt.slice(0, 89) + '…' : w.prompt)}</span></td><td class="num">${fmt(w.max)}</td><td class="num">${isNaN(w.mean) ? '—' : fmt(w.mean)}</td><td class="num">${pctTxt(w.pct)}</td><td><div class="bar"><i class="${(w.pct ?? 0) < 50 ? 'lo' : ''}" style="width:${w.pct || 0}%"></i></div></td><td class="num">${w.zero}</td><td class="num">${w.full}</td><td class="num">${w.pending ? `<span class="pill warn">${w.pending}</span>` : '0'}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+    <div class="card"><h2>Үзүүлэлтийн тайлбар</h2><ul class="tips">
+      <li><b>Зөв %</b> (хүндрэлийн индекс p): 85%-иас дээш хэт хялбар, 60–85% хялбар, 35–60% дунд, 35%-иас доош хүнд.</li>
+      <li><b>D</b> (ялгах чадвар): нийт оноогоор дээд 27%, доод 27% бүлгийн зөв хариулсан хувийн зөрүү. 0.30-аас дээш сайн, 0.20–0.29 хангалттай, 0.20-оос доош сайжруулах, сөрөг бол түлхүүр эсвэл асуултыг шалгана.</li>
+      <li><b>r</b> (цэг-бисериал хамаарал): тухайн асуулт ба бусад асуултын нийлбэр онооны хамаарал. 0.20-оос дээш бол асуулт шалгалтын зорилготой нийцэж байна.</li>
+      <li><b>Найдвартай байдал α</b> (Кронбахын альфа): 0.80-аас дээш өндөр, 0.70–0.79 хангалттай, 0.70-аас доош бага.</li>
+      <li>Сонголтын тархалтад ногоон нь зөв хариулт, улбар шар нь дээд бүлэг доод бүлгээс олон сонгосон буруу хариулт.</li></ul></div>`;
+  }
+  return head + filters + notices + tabs + body;
 }
 function slipCanvas(ex, list) {
   const ppm = 6, c = document.createElement('canvas'); c.width = 210 * ppm; c.height = 297 * ppm;
@@ -2559,8 +3329,9 @@ function pSettings() {
   <div class="card"><h2>Үнэлгээний босго</h2><div class="fields">
     <label class="field">Амжилтын босго (%)<input type="number" id="stSucc" min="0" max="100" value="${st.thrSuccess}"></label>
     <label class="field">Чанарын босго (%)<input type="number" id="stQual" min="0" max="100" value="${st.thrQuality}"></label>
+    <label class="field">Сэдвийн дэмжлэгийн босго (%)<input type="number" id="stSupp" min="0" max="100" value="${thrSupport()}"></label>
     ${st.grades.slice(0, -1).map(([g, t], i) => `<label class="field">${g} үнэлгээ (≥ %)<input type="number" data-grade="${i}" min="0" max="100" value="${t}"></label>`).join('')}</div>
-    <p class="small muted">Амжилт: босгоос дээш хувьтай сурагчдын эзлэх хувь. Чанар: чанарын босгоос дээш хувьтай сурагчдын эзлэх хувь. Сургуулийнхаа журмаар тохируулна уу.</p></div>
+    <p class="small muted">Амжилт: босгоос дээш хувьтай сурагчдын эзлэх хувь. Чанар: чанарын босгоос дээш хувьтай сурагчдын эзлэх хувь. Түвшин: амжилтын босгоос доош бол «Дэмжлэг хэрэгтэй», амжилтын босгоос дээш «Хангалттай», чанарын босгоос дээш «Ахисан». Сэдвийн дэмжлэгийн босго: сурагч аль нэг сэдэвт энэ хувиас доош гүйцэтгэвэл тайланд тэр сэдвээр дэмжлэг хэрэгтэй гэж тэмдэглэнэ. Сургуулийнхаа журмаар тохируулна уу.</p></div>
   <div class="row"><button class="btn primary" data-act="saveSettings">${ic('save')}Тохиргоо хадгалах</button></div>
   <div class="card"><h2>Өгөгдөл хадгалалт</h2>
     <p>${Cap.cloud ? `${ic('cloud')} Өгөгдөл таны Google бүртгэлд${Cap.email ? ' (' + esc(Cap.email) + ')' : ''} хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Зөвхөн та харна. Интернэтгүй үед ч хадгалж, холбогдмогц илгээнэ.`
@@ -2643,6 +3414,8 @@ const A = {
     markDirty(); render(); toast(`${Math.min(letters.length, d.count)} асуултын түлхүүр орууллаа${nVer(d) > 1 ? ` (${UI.keyV || V0(d)} хувилбар)` : ''}`);
   },
   togglePts: () => { UI.showPts = !UI.showPts; render(); },
+  addTopic: () => { const d = UI.draft.data; d.topics = d.topics || []; d.topics.push({ name: '', range: '' }); markDirty(); render(); $$('[data-tp="name"]').pop()?.focus(); },
+  delTopic: el => { UI.draft.data.topics.splice(+el.dataset.i, 1); markDirty(); render(); },
   addWritten: () => { const d = UI.draft.data; d.written = d.written || []; d.written.push({ prompt: '', max: 2, rubric: '' }); markDirty(); render(); },
   delWritten: el => { UI.draft.data.written.splice(+el.dataset.i, 1); markDirty(); render(); },
   newClassToggle: () => { UI.newClass = !UI.newClass; render(); $('#cName')?.focus(); },
@@ -2746,12 +3519,14 @@ const A = {
     if (el.dataset.fmt === 'xlsx' && window.XLSX) await offerFile(`${safeName(ex.name)} - асуулт.xlsx`, xlsxBlob([['Асуулт', rows]]));
     else await offerFile(`${safeName(ex.name)} - асуулт.csv`, csvText(rows)); },
   slips: () => downloadSlips(exam(UI.reportExamId)),
+  expReport: () => exportReport(exam(UI.reportExamId)),
+  repTab: el => { UI.repTab = el.dataset.tab; render(); },
   slipOne: el => downloadSlips(exam(UI.reportExamId), el.dataset.id),
   saveSettings: () => {
     const st = clone(settings());
-    const succ = +$('#stSucc').value, qual = +$('#stQual').value;
-    if (!(succ >= 0 && succ <= 100 && qual >= 0 && qual <= 100)) { toast('Босго 0–100 хооронд байх ёстой.', true); return; }
-    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, thrSuccess: succ, thrQuality: qual });
+    const succ = +$('#stSucc').value, qual = +$('#stQual').value, supp = +$('#stSupp').value;
+    if (!(succ >= 0 && succ <= 100 && qual >= 0 && qual <= 100 && supp >= 0 && supp <= 100)) { toast('Босго 0–100 хооронд байх ёстой.', true); return; }
+    Object.assign(st, { school: $('#stSchool').value.trim(), teacher: $('#stTeacher').value.trim(), defPoints: Math.max(0.5, +$('#stPts').value || 1), defChoices: +$('#stCh').value, thrSuccess: succ, thrQuality: qual, thrSupport: supp });
     $$('[data-grade]').forEach(inp => { st.grades[+inp.dataset.grade][1] = Math.min(100, Math.max(0, +inp.value || 0)); });
     st.grades.sort((a, b) => b[1] - a[1]);
     S.settings = [st]; put('settings', st); toast('Тохиргоо хадгалагдлаа'); render();
@@ -2812,6 +3587,7 @@ document.addEventListener('change', async ev => {
   }
   if (t.id === 'shVer') { UI.sheet.v = t.value; render(); return; }
   if (t.id === 'rpVer') { UI.repV = t.value; render(); return; }
+  if (t.id === 'rpClass') { UI.repClass = t.value; render(); return; }
   if (t.id === 'shExam') { UI.sheet.examId = t.value; UI.sheet.classId = exam(t.value)?.classId || ''; render(); return; }
   if (t.id === 'shClass') { UI.sheet.classId = t.value; render(); return; }
   if (t.id === 'shMode') { UI.sheet.mode = t.value; render(); return; }
@@ -2834,6 +3610,13 @@ document.addEventListener('input', ev => {
   if (t.id === 'classQ') { UI.classQ = t.value; const pos = t.selectionStart; render(); const n = $('#classQ'); n.focus(); n.setSelectionRange(pos, pos); return; }
   if (t.id === 'rpQ') { UI.reportQ = t.value; const pos = t.selectionStart; render(); const n = $('#rpQ'); n.focus(); n.setSelectionRange(pos, pos); return; }
   if (UI.draft && t.dataset.d && !['count', 'choices', 'classId', 'status', 'nver', 'writtenOn'].includes(t.dataset.d)) { UI.draft.data[t.dataset.d] = t.value; markDirty(); return; }
+  if (UI.draft && t.dataset.tp) {
+    const d = UI.draft.data, tp = (d.topics || [])[+t.dataset.i]; if (!tp) return;
+    tp[t.dataset.tp] = t.value; markDirty();
+    const cn = topicCounts(d); (d.topics || []).forEach((x, i) => { const el = $(`[data-tpc="${i}"]`); if (el) el.textContent = cn[i] + ' асуулт'; });
+    const fr = $('[data-tpc="free"]'); if (fr) fr.textContent = topicFreeText(d, cn[cn.length - 1]);
+    return;
+  }
   if (UI.draft && t.dataset.qp != null) { UI.draft.data.points = UI.draft.data.points || []; UI.draft.data.points[+t.dataset.qp] = t.value === '' ? null : +t.value; markDirty(); return; }
   if (UI.draft && t.dataset.w) {
     const w = UI.draft.data.written[+t.dataset.i], f = t.dataset.w, v = t.dataset.v;
