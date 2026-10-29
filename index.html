@@ -620,6 +620,7 @@ async function initStore() {
   let [db, user, sample, downloads] = await Promise.all(['db', 'user', 'sample', 'downloads'].map(useCap));
   Object.assign(Cap, { db, user, sample, downloads });
   if (sample) { try { const l = await sample.limits(); Cap.canImages = !!l.images; Cap.maxImages = l.images?.maxCount || 1; } catch {} }
+  else aiApiInit();
   if (user) {
     try { Cap.uid = await user.id(); } catch {}
     try { const me = await user.me(); Cap.name = me?.name || ''; } catch {}
@@ -1895,6 +1896,131 @@ async function exportReport(ex) {
   } catch (e) { console.error(e); toast('Excel тайлан үүсгэж чадсангүй.', true); }
 }
 
+// =============== AI on the own web address: teacher's own Claude API key ===============
+// Inside Claude the app uses Claude's own AI (Cap.sample from window.claude). On the web there is no such
+// access, so a teacher can enter an Anthropic API key. The key stays in this browser only (localStorage):
+// it is not part of the synced data, the backup file or the repository, and is sent only to api.anthropic.com.
+const AI_LS = 'eduscan-ai', AI_USE_LS = 'eduscan-ai-usage';
+const AI_URL = 'https://api.anthropic.com/v1/messages';
+const AI_MODELS = [ // USD per million tokens (input, output); platform.claude.com pricing, 2026-10
+  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', note: 'нарийвчлалтай', inP: 2, outP: 10 },
+  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', note: '20 дахин хямд', inP: 0.10, outP: 0.50 },
+];
+const AI_MAX_SIDE = 2000; // longer photo edges are scaled down: enough for handwriting, fewer tokens
+const webAI = () => !window.claude?.use; // own web address (not inside Claude)
+function aiConf() { try { return JSON.parse(localStorage.getItem(AI_LS) || 'null') || {}; } catch { return {}; } }
+function aiSetConf(c) { try { if (c) localStorage.setItem(AI_LS, JSON.stringify(c)); else localStorage.removeItem(AI_LS); return true; } catch { return false; } }
+const aiModel = () => AI_MODELS.find(m => m.id === aiConf().model) || AI_MODELS[0];
+function aiUsage() { try { return JSON.parse(localStorage.getItem(AI_USE_LS) || 'null') || { n: 0, inTok: 0, outTok: 0, usd: 0, since: Date.now() }; } catch { return { n: 0, inTok: 0, outTok: 0, usd: 0, since: Date.now() }; } }
+function aiAddUsage(model, u) {
+  const m = AI_MODELS.find(x => x.id === model) || AI_MODELS[0];
+  const inTok = (u?.input_tokens || 0) + (u?.cache_creation_input_tokens || 0) + (u?.cache_read_input_tokens || 0), outTok = u?.output_tokens || 0;
+  const cost = ((u?.input_tokens || 0) * m.inP + (u?.cache_creation_input_tokens || 0) * m.inP * 1.25 + (u?.cache_read_input_tokens || 0) * m.inP * 0.1 + outTok * m.outP) / 1e6;
+  const t = aiUsage(); Object.assign(t, { n: t.n + 1, inTok: t.inTok + inTok, outTok: t.outTok + outTok, usd: t.usd + cost, last: { usd: cost, inTok, outTok, model: m.name, at: Date.now() } });
+  try { localStorage.setItem(AI_USE_LS, JSON.stringify(t)); } catch {}
+  Cap.lastCost = cost;
+}
+const fmtUsd = v => v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(v < 1 ? 3 : 2)}`;
+const aiCostNote = () => Cap.ai === 'api' && Cap.lastCost != null ? ` Зардал ≈ ${fmtUsd(Cap.lastCost)}.` : '';
+const aiSpentNote = u0 => Cap.ai === 'api' ? ` Зардал ≈ ${fmtUsd(Math.max(0, aiUsage().usd - u0))}.` : '';
+const maskKey = k => k ? `${k.slice(0, 7)}…${k.slice(-4)}` : '';
+function aiFail(code, detail) { const e = new Error(detail || code); e.code = code; return e; }
+async function aiImage(b) {
+  // Blob or data URL → { media_type, data } (base64), scaled down when large or in an unsupported format
+  let blob = b;
+  if (typeof b === 'string') blob = await (await fetch(b)).blob();
+  const okType = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(blob.type);
+  let bmp = null; try { bmp = await createImageBitmap(blob); } catch {}
+  if (bmp && (!okType || Math.max(bmp.width, bmp.height) > AI_MAX_SIDE || blob.size > 4e6)) {
+    const s = Math.min(1, AI_MAX_SIDE / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    blob = await toBlob(c, 'image/jpeg', 0.9);
+  } else if (!okType) throw aiFail('image_rejected');
+  const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(aiFail('image_rejected')); r.readAsDataURL(blob); });
+  return { type: 'image', source: { type: 'base64', media_type: blob.type || 'image/jpeg', data } };
+}
+function aiParseJson(text) {
+  const t = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try { return JSON.parse(t); } catch {}
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch {} }
+  return undefined;
+}
+async function aiCall(body, key, tries = 2) {
+  if (!navigator.onLine) throw aiFail('offline');
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 180000);
+  let res;
+  try {
+    res = await fetch(AI_URL, { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify(body) });
+  } catch (e) { clearTimeout(timer); throw aiFail(e?.name === 'AbortError' ? 'timeout' : navigator.onLine ? 'network' : 'offline'); }
+  clearTimeout(timer);
+  const j = await res.json().catch(() => null);
+  if (res.ok) return j;
+  const type = j?.error?.type || '', msg = j?.error?.message || '', st = res.status;
+  if ((st === 529 || st === 500 || st === 503 || type === 'overloaded_error' || type === 'api_error') && tries > 1) {
+    await new Promise(r => setTimeout(r, 2500)); return aiCall(body, key, tries - 1);
+  }
+  if (st === 401 || type === 'authentication_error') throw aiFail('api_key', msg);
+  if (/credit balance|billing/i.test(msg) || type === 'billing_error' || st === 402) throw aiFail('no_credit', msg);
+  if (st === 429 && /spend/i.test(JSON.stringify(j || ''))) throw aiFail('spend_limit', msg);
+  if (st === 429 || type === 'rate_limit_error') throw aiFail('rate_limited', msg);
+  if (st === 403 || type === 'permission_error') throw aiFail('api_permission', msg);
+  if (st === 404 || type === 'not_found_error') throw aiFail('api_model', msg);
+  if (st === 413 || type === 'request_too_large' || /image/i.test(msg)) throw aiFail('image_rejected', msg);
+  if (st >= 500 || type === 'overloaded_error') throw aiFail('overloaded', msg);
+  throw aiFail('api_other', msg);
+}
+const API_SAMPLE = {
+  async json(prompt, opts = {}) {
+    const c = aiConf(); if (!c.key) throw aiFail('api_key');
+    const model = aiModel().id;
+    const images = await Promise.all((opts.images || []).slice(0, Cap.maxImages).map(aiImage));
+    const body = { model, max_tokens: 16000, output_config: { effort: 'medium' },
+      system: 'You are the AI assistant inside EduScan Mongolia, a grading and learning-analytics app for school teachers. Follow the instructions exactly. Reply with only valid JSON: no Markdown, no code fences, no text before or after it.',
+      messages: [{ role: 'user', content: [...images, { type: 'text', text: prompt }] }] };
+    const j = await aiCall(body, c.key);
+    aiAddUsage(model, j?.usage);
+    if (j?.stop_reason === 'refusal') throw aiFail('refused');
+    const text = (j?.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    const out = aiParseJson(text);
+    if (out === undefined) throw aiFail(j?.stop_reason === 'max_tokens' ? 'truncated' : 'invalid_json');
+    return out;
+  },
+  async limits() { return { images: { maxCount: 10 } }; },
+};
+function aiApiInit() {
+  if (!webAI()) return;
+  const has = !!aiConf().key;
+  Object.assign(Cap, { ai: has ? 'api' : '', sample: has ? API_SAMPLE : null, canImages: has, maxImages: has ? 10 : 1 });
+}
+async function aiTest(key, model) {
+  // a tiny request: checks the key, the credit balance and access to the chosen model (costs a fraction of a cent)
+  const j = await aiCall({ model, max_tokens: 64, output_config: { effort: 'low' }, messages: [{ role: 'user', content: 'Reply with: OK' }] }, key, 1);
+  aiAddUsage(model, j?.usage);
+  return j;
+}
+function aiCard() {
+  if (!webAI()) {
+    return `<div class="card"><h2>AI үнэлгээ</h2><p>${Cap.sample ? `Задгай даалгаврыг Claude уншиж, шалгуураар оноо санал болгоно${Cap.canImages ? '. Зураг илгээх боломжтой.' : '. Энэ харагдацаас зураг илгээх боломжгүй тул текстээр оруулна.'} Хүсэлт бүр таны Claude хэрэглээнээс зарцуулна. Анх ашиглахад зөвшөөрөл асууна.` : 'Энэ харагдацад AI ашиглах боломжгүй. Оноог гараар оруулна.'}</p></div>`;
+  }
+  const c = aiConf(), u = aiUsage(), m = aiModel();
+  return `<div class="card"><h2>AI үнэлгээ (Claude API)</h2>
+    <p>${c.key ? `${ic('circle-check')} AI идэвхтэй: <b>${esc(m.name)}</b>. Задгай даалгаврын үнэлгээ, хуудсыг AI-аар унших, ангийн зөвлөмж, сурагчийн тайлбарыг таны API түлхүүрээр гүйцэтгэнэ. Хүсэлт бүр таны API кредитээс зарцуулна.`
+      : 'Вэб хувилбарт AI ашиглахын тулд өөрийн Claude API түлхүүрээ оруулна. Түлхүүрийг <b>platform.claude.com</b> дээр үүсгэж, кредит цэнэглэнэ. API-ийн төлбөр Claude-ийн захиалгаас тусдаа, урьдчилж цэнэглэсэн кредитээс хасагдана.'}</p>
+    <div class="fields">
+      <label class="field">API түлхүүр<input type="password" id="aiKey" autocomplete="off" spellcheck="false" placeholder="${c.key ? esc(maskKey(c.key)) + ' (хадгалсан)' : 'sk-ant-…'}"></label>
+      <label class="field">Загвар<select id="aiModel">${AI_MODELS.map(x => opt(x.id, `${x.name.replace('Claude ', '')} · ${x.note}`, m.id)).join('')}</select></label>
+    </div>
+    <div class="row"><button class="btn primary" data-act="aiSave" ${UI.aiTesting ? 'disabled' : ''}>${UI.aiTesting ? '<span class="busy"></span>Шалгаж байна' : ic('key-round') + 'Хадгалах ба шалгах'}</button>
+      ${c.key ? `<button class="btn danger" data-act="aiForget">${ic('trash-2')}Түлхүүр устгах</button>` : ''}</div>
+    ${UI.aiNote ? `<p class="notice ${UI.aiNote.bad ? 'bad' : 'ok'}">${ic(UI.aiNote.bad ? 'triangle-alert' : 'circle-check')}<span>${esc(UI.aiNote.text)}</span></p>` : ''}
+    ${u.n ? `<p class="small muted">Энэ төхөөрөмж дээрх зарцуулалт (${new Date(u.since - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}-ээс хойш): ${u.n} хүсэлт · ${u.inTok.toLocaleString('en-US')} оролтын, ${u.outTok.toLocaleString('en-US')} гаралтын токен · ≈ ${fmtUsd(u.usd)}${u.last ? `. Сүүлийн хүсэлт: ≈ ${fmtUsd(u.last.usd)} (${esc(u.last.model)})` : ''}. <button class="btn link sm" data-act="aiUsageReset">Тэглэх</button></p>` : ''}
+    <p class="small muted">${ic('shield-check')} Түлхүүр зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана. Google бүртгэлийн синк, нөөц файл, бусад төхөөрөмж рүү очихгүй, зөвхөн api.anthropic.com руу илгээгдэнэ. Утас, компьютер тус бүр дээр тусад нь оруулна. Нийтийн компьютер дээр хадгалахгүй байхыг зөвлөе.</p>
+    <p class="small muted">Claude руу сурагчийн нэрийг илгээхгүй: задгай даалгаврын хэсгийн зураг, даалгавар, шалгуур, оноо, сурагчийн кодыг илгээнэ. Хуудсыг AI-аар уншуулахад бүтэн зураг очно.</p>
+    <p class="small muted">Зардлаа хянахын тулд platform.claude.com дээр EduScan-д зориулсан тусдаа түлхүүр үүсгэж, автоматаар цэнэглэх (auto-reload) тохиргоог унтраалттай байлгаарай.</p></div>`;
+}
+
 // =============== AI (Claude) ===============
 function aiErr(e) {
   return ({
@@ -1906,6 +2032,17 @@ function aiErr(e) {
     invalid_json: 'AI-ийн хариултыг уншиж чадсангүй. Дахин оролдоно уу.',
     refused: 'AI энэ хүсэлтийг гүйцэтгэхээс татгалзлаа.',
     session_expired: 'Claude-д дахин нэвтэрнэ үү.',
+    api_key: 'API түлхүүр буруу эсвэл хүчингүй байна. Тохиргоонд шалгана уу.',
+    no_credit: 'API кредит дууссан байна. platform.claude.com → Billing хэсэгт цэнэглэнэ үү.',
+    spend_limit: 'API-ийн зарцуулалтын хязгаарт хүрсэн байна. platform.claude.com дээр хязгаараа шалгана уу.',
+    api_permission: 'Энэ түлхүүрээр сонгосон загварыг ашиглах эрхгүй байна.',
+    api_model: 'Сонгосон загвар олдсонгүй. Тохиргоонд өөр загвар сонгоно уу.',
+    overloaded: 'Claude түр ачаалалтай байна. Хэсэг хүлээгээд дахин оролдоно уу.',
+    offline: 'Интернэт холболт алга. AI ашиглахад интернэт шаардлагатай.',
+    network: 'Claude API-тай холбогдож чадсангүй. Интернэтээ шалгаад дахин оролдоно уу.',
+    timeout: 'Claude удаан хариулсан тул зогсоолоо. Дахин оролдоно уу.',
+    truncated: 'AI-ийн хариулт дутуу ирлээ. Дахин оролдоно уу.',
+    api_other: 'Claude API хүсэлтийг хүлээн авсангүй.' + (e?.message && e.message !== 'api_other' ? ' (' + e.message + ')' : ''),
   })[e?.code] || 'AI-тай холбогдож чадсангүй. Дахин оролдоно уу.';
 }
 async function gradeWritten() {
@@ -1943,7 +2080,7 @@ Reply with only JSON: {"answers":[{"n":1,"transcript":"...","points":2,"feedback
       const m = +ex.written[i].max || 0;
       ed.written[i] = { ...ed.written[i], points: String(Math.min(m, Math.max(0, Math.round((+a.points || 0) * 2) / 2))), transcript: String(a.transcript || ''), feedback: String(a.feedback || ''), ai: true };
     });
-    ed.aiState = 'done'; ed.aiMsg = 'AI санал болгосон оноог шалгаад, шаардлагатай бол засна уу.';
+    ed.aiState = 'done'; ed.aiMsg = 'AI санал болгосон оноог шалгаад, шаардлагатай бол засна уу.' + aiCostNote();
   } catch (e) { if (E !== ed) return; ed.aiState = 'error'; ed.aiMsg = aiErr(e); }
   refreshEditor();
 }
@@ -1966,7 +2103,7 @@ Reply with only JSON: {"code":"0003",${nVer(ex) > 1 ? '"version":"А",' : ''}"an
     ed.code = String(out?.code || '').replace(/\D/g, '').slice(0, 4);
     if (nVer(ex) > 1) { const v = String(out?.version || '').trim().toUpperCase(); ed.version = ex.versions.includes(v) ? v : ''; ed.verFlag = true; }
     ed.scanMsg = ''; ed.source = 'ai'; matchStudent(ex);
-    ed.aiState = 'done'; ed.aiMsg = 'AI хуудсыг уншлаа. Энэ нь тэмдэглэгээгээр таниагүй тул хариулт бүрийг нүдээр шалгана уу.';
+    ed.aiState = 'done'; ed.aiMsg = 'AI хуудсыг уншлаа. Энэ нь тэмдэглэгээгээр таниагүй тул хариулт бүрийг нүдээр шалгана уу.' + aiCostNote();
   } catch (e) { if (E !== ed) return; ed.aiState = 'error'; ed.aiMsg = aiErr(e); }
   refreshEditor();
 }
@@ -2487,7 +2624,7 @@ function renderSide() {
   const counts = { exams: S.exams.filter(x => x.status !== 'archived').length, classes: S.classes.length, students: S.students.filter(s => s.active !== false).length, archive: S.exams.filter(x => x.status === 'archived').length };
   $('#menu').innerHTML = PAGES.map(([k, l, i]) => `<button class="${cur === k ? 'on' : ''}" data-go="${k}">${ic(i)}<span>${l}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
   const m = { db: [Cap.cloud ? 'Google бүртгэлд синк хийгдэнэ' : 'Claude бүртгэлд хадгалагдана', 'var(--ok)'], local: ['Зөвхөн энэ төхөөрөмжид', 'var(--warn)'], memory: ['Түр горим: хадгалагдахгүй', 'var(--bad)'] }[Cap.mode];
-  $('#sideFoot').innerHTML = `<span><span class="dot" style="--st:${m[1]}"></span>${m[0]}</span><span><span class="dot" style="--st:${Cap.sample ? 'var(--ok)' : 'var(--bad)'}"></span>AI үнэлгээ: ${Cap.sample ? 'Claude' : 'боломжгүй'}</span>`;
+  $('#sideFoot').innerHTML = `<span><span class="dot" style="--st:${m[1]}"></span>${m[0]}</span><span><span class="dot" style="--st:${Cap.sample ? 'var(--ok)' : 'var(--bad)'}"></span>AI үнэлгээ: ${Cap.sample ? (Cap.ai === 'api' ? 'Claude API' : 'Claude') : 'боломжгүй'}</span>`;
   $('#side').classList.toggle('open', UI.sideOpen); $('#scrim').classList.toggle('open', UI.sideOpen);
 }
 function render() {
@@ -3051,7 +3188,7 @@ function edForm(ex) {
   ${(ex.written || []).length ? `<div class="stack" style="gap:10px">
     <div class="spread"><h3>II хэсэг. Задгай даалгавар</h3>${canAI ? `<button class="btn" data-act="aiGrade" ${busy ? 'disabled' : ''}>${busy ? '<span class="busy"></span>Үнэлж байна' : ic('sparkles') + 'AI-аар үнэлэх'}</button>` : ''}</div>
     ${E.aiMsg ? `<p class="notice ${E.aiState === 'error' ? 'bad' : E.aiState === 'done' ? 'ok' : ''}">${busy ? '<span class="busy"></span>' : ic('sparkles')}<span>${esc(E.aiMsg)}</span></p>` : ''}
-    ${!canAI ? `<p class="notice">${ic('info')}<span>AI үнэлгээ энэ харагдацад ажиллахгүй байна. Оноогоо гараар оруулна уу.</span></p>` : ''}
+    ${!canAI ? `<p class="notice">${ic('info')}<span>${webAI() ? 'AI үнэлгээ ашиглахын тулд Тохиргоо → «AI үнэлгээ (Claude API)» хэсэгт API түлхүүрээ оруулна уу. Эсвэл оноогоо гараар оруулна.' : 'AI үнэлгээ энэ харагдацад ажиллахгүй байна. Оноогоо гараар оруулна уу.'}</span></p>` : ''}
     ${wrPage(ex) === 2 ? `<div class="notice">${ic('files')}<div class="stack" style="gap:8px">
       <span>Задгай даалгавар хариултын хуудасны <b>2-р нүүрт</b> байгаа. ${canAI && Cap.canImages ? '2-р нүүрийн зургийг авбал AI уншиж, оноо санал болгоно.' : 'Оноог цааснаас харж гараар оруулна уу.'}</span>
       ${canAI && Cap.canImages ? `<div class="row"><button class="btn sm primary" data-act="backCam" ${E.backBusy || busy ? 'disabled' : ''}>${ic('camera')}${E.back ? '2-р нүүрийг дахин авах' : '2-р нүүрийг камераар авах'}</button><button class="btn sm" data-act="backPick" ${E.backBusy || busy ? 'disabled' : ''}>${ic('image')}Зураг сонгох</button></div>` : ''}
@@ -3189,7 +3326,7 @@ Reply with only JSON: {"summary":"","priorities":[{"topic":"","why":"","mustMent
   try {
     const out = await Cap.sample.json(prompt);
     const x = clone(exam(ex.id)); x.aiAdvice = { ...(x.aiAdvice || {}), [aiKey()]: { ...out, at: now(), n: R.n } };
-    await put('exams', x); UI.aiMsg = '';
+    await put('exams', x); UI.aiMsg = ''; if (Cap.ai === 'api') toast('AI зөвлөмж бэлэн боллоо.' + aiCostNote());
   } catch (e) { UI.aiMsg = aiErr(e); UI.aiErr = true; }
   UI.aiBusy = ''; render();
 }
@@ -3197,7 +3334,7 @@ async function aiComments(ex) {
   if (!Cap.sample || UI.aiBusy) return;
   const R = analyze(ex, { classId: UI.repClass, version: UI.repV });
   UI.aiBusy = 'comments'; UI.aiErr = false;
-  const recs = R.recs.slice(); let done = 0;
+  const recs = R.recs.slice(); let done = 0; const u0 = aiUsage().usd;
   try {
     for (let i = 0; i < recs.length; i += 25) {
       const chunk = recs.slice(i, i + 25);
@@ -3216,7 +3353,7 @@ Reply with only JSON: {"comments":[{"code":"0001","text":"..."}]}`;
       }
     }
     UI.aiMsg = '';
-    toast(`${done} сурагчийн тайлбарыг Claude бичлээ. Шалгаад шаардлагатай бол засна уу.`);
+    toast(`${done} сурагчийн тайлбарыг Claude бичлээ. Шалгаад шаардлагатай бол засна уу.` + aiSpentNote(u0));
   } catch (e) { UI.aiMsg = aiErr(e); UI.aiErr = true; }
   UI.aiBusy = ''; render();
 }
@@ -3340,7 +3477,7 @@ function adviceTab(ex, R) {
     ${!(ex.topics || []).length ? `<p class="small muted">${ic('info')} Асуултуудыг сэдвээр бүлэглэж, сэдэв бүрийн суралцахуйн зорилтыг бичвэл зөвлөмж илүү тодорхой болно. <button class="btn link" data-act="openExam" data-id="${ex.id}" data-tab="key">Сэдэв тохируулах →</button></p>` : ''}</div>
   <div class="card"><div class="spread"><h2>AI зөвлөмж</h2>${Cap.sample ? `<button class="btn ${ai ? '' : 'primary'}" data-act="aiAdvice" ${busy ? 'disabled' : ''}>${busy === 'advice' ? '<span class="busy"></span>Бичиж байна' : ic('sparkles') + (ai ? 'Дахин бичүүлэх' : 'Claude-аар зөвлөмж бичүүлэх')}</button>` : ''}</div>
     ${ai ? aiAdviceHtml(ai) : Cap.sample ? '<p class="muted small">Claude дүн, сэдэв, буруу ойлголтод тулгуурлан заавал дурдах ойлголт, ангид хийх үйл ажиллагаа, бүлгээр ажиллах төлөвлөгөөг санал болгоно. Сурагчдын нэр илгээгдэхгүй.</p>'
-      : `<p class="notice">${ic('info')}<span>AI зөвлөмж одоогоор Claude доторх EduScan-д ажиллана. Дээрх зөвлөмж интернэтгүй ч гарна.</span></p>`}</div>
+      : `<p class="notice">${ic('info')}<span>${webAI() ? 'AI зөвлөмж авахын тулд Тохиргоо → «AI үнэлгээ (Claude API)» хэсэгт API түлхүүрээ оруулна уу.' : 'AI зөвлөмж одоогоор Claude доторх EduScan-д ажиллана.'} Дээрх зөвлөмж AI-гүй, интернэтгүй ч гарна.</span></p>`}</div>
   <div class="card"><div class="spread"><h2>Сурагч бүрийн тайлбар</h2><div class="row">${Cap.sample ? `<button class="btn" data-act="aiComments" ${busy ? 'disabled' : ''}>${busy === 'comments' ? '<span class="busy"></span>Бичиж байна' : ic('sparkles') + 'Claude-аар бичүүлэх'}</button>` : ''}<button class="btn" data-act="resetComments">${ic('rotate-ccw')}Автомат тайлбар руу буцаах</button></div></div>
     <p class="small muted">Тайлбар автоматаар үүснэ (${NOTE_MAX} тэмдэгт хүртэл). Засвал хадгалагдаж, Grading4you-ийн «Тэмдэглэл», Excel тайлан, дүнгийн хуудсанд орно.</p>
     <div class="tablebox"><table><thead><tr><th>Сурагч</th><th class="num">Хувь</th><th>Түвшин</th><th style="min-width:380px">Тайлбар</th></tr></thead><tbody>
@@ -3661,7 +3798,7 @@ function pSettings() {
       : Cap.cloudAvail ? `<div class="row"><button class="btn primary" data-act="cloudIn">${ic('log-in')}Google-ээр нэвтрэх</button></div>` : ''}
     <p class="small muted">${S.exams.length} шалгалт · ${S.classes.length} анги · ${S.students.length} сурагч · ${S.attempts.length} үр дүн</p>
     <div class="row"><button class="btn" data-act="backup">${ic('download')}Нөөц файл татах (JSON)</button><button class="btn" data-act="restore">${ic('upload')}Нөөцөөс сэргээх</button></div></div>
-  <div class="card"><h2>AI үнэлгээ</h2><p>${Cap.sample ? `Задгай даалгаврыг Claude уншиж, шалгуураар оноо санал болгоно${Cap.canImages ? '. Зураг илгээх боломжтой.' : '. Энэ харагдацаас зураг илгээх боломжгүй тул текстээр оруулна.'} Хүсэлт бүр таны Claude хэрэглээнээс зарцуулна. Анх ашиглахад зөвшөөрөл асууна.` : 'Энэ харагдацад AI ашиглах боломжгүй. Оноог гараар оруулна.'}</p></div>`;
+  ${aiCard()}`;
 }
 
 // =============== actions ===============
@@ -3853,6 +3990,26 @@ const A = {
   },
   repTab: el => { UI.repTab = el.dataset.tab; render(); },
   slipOne: el => downloadSlips(exam(UI.reportExamId), el.dataset.id),
+  aiSave: async () => {
+    const typed = ($('#aiKey')?.value || '').trim(), key = typed || aiConf().key, model = $('#aiModel')?.value || aiModel().id;
+    if (!key) { UI.aiNote = { bad: true, text: 'API түлхүүрээ оруулна уу.' }; render(); return; }
+    if (!/^sk-ant-/.test(key)) { UI.aiNote = { bad: true, text: 'Claude API түлхүүр «sk-ant-» гэж эхэлдэг. Түлхүүрээ шалгаад дахин оруулна уу.' }; render(); return; }
+    UI.aiTesting = true; UI.aiNote = null; render();
+    const name = (AI_MODELS.find(m => m.id === model) || AI_MODELS[0]).name;
+    try {
+      await aiTest(key, model);
+      aiSetConf({ key, model }); aiApiInit();
+      UI.aiNote = { text: `Холболт амжилттай. ${name} ашиглахад бэлэн.` };
+    } catch (e) {
+      if (['no_credit', 'spend_limit', 'offline', 'network', 'timeout', 'overloaded', 'rate_limited'].includes(e.code)) {
+        aiSetConf({ key, model }); aiApiInit(); // the key itself is not the problem: keep it
+        UI.aiNote = { bad: true, text: 'Түлхүүрийг хадгаллаа, гэхдээ: ' + aiErr(e) };
+      } else UI.aiNote = { bad: true, text: aiErr(e) + ' Түлхүүр хадгалагдаагүй.' };
+    }
+    UI.aiTesting = false; render();
+  },
+  aiForget: () => { aiSetConf(null); aiApiInit(); UI.aiNote = { text: 'API түлхүүрийг энэ төхөөрөмжөөс устгалаа.' }; render(); },
+  aiUsageReset: () => { try { localStorage.removeItem(AI_USE_LS); } catch {} Cap.lastCost = null; render(); },
   saveSettings: () => {
     const st = clone(settings());
     const succ = +$('#stSucc').value, qual = +$('#stQual').value, supp = +$('#stSupp').value;
@@ -3889,6 +4046,7 @@ document.addEventListener('click', ev => {
 document.addEventListener('change', async ev => {
   const t = ev.target;
   if (t.id === 'cam' || t.id === 'pick') { const f = t.files[0]; t.value = ''; if (f) handleScanFile(f); return; }
+  if (t.id === 'aiModel') { const c = aiConf(); if (c.key) { aiSetConf({ ...c, model: t.value }); aiApiInit(); UI.aiNote = { text: `${aiModel().name} сонгогдлоо.` }; render(); } return; }
   if (t.id === 'lvAuto') { LV.auto = t.checked; try { localStorage.setItem('eduscan-live-auto', t.checked ? '1' : '0'); } catch {} return; }
   if (t.id === 'camBack' || t.id === 'pickBack') { const f = t.files[0]; t.value = ''; if (f) handleBackFile(f); return; }
   if (t.id === 'importFile') { const f = t.files[0]; t.value = ''; if (f) parseImport(f); return; }
