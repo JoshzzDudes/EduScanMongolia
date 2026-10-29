@@ -256,6 +256,9 @@ button.userchip:hover { border-color: var(--primary); }
 .avatar.lg { width: 40px; height: 40px; font-size: 16px; flex: none; }
 input:disabled, select:disabled { opacity: 0.6; cursor: not-allowed; }
 .avatar.xl { width: 56px; height: 56px; font-size: 22px; flex: none; }
+.steplist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.steplist li { display: flex; gap: 8px; align-items: baseline; }
+.steplist li .mono { flex: none; min-width: 44px; font-weight: 600; }
 </style>
 <style>
 /* ===== Colorful theme layer: visuals only, no layout or content changes ===== */
@@ -2263,6 +2266,227 @@ function aiCard() {
     <p class="small muted">Зардлаа хянахын тулд platform.claude.com дээр EduScan-д зориулсан тусдаа түлхүүр үүсгэж, автоматаар цэнэглэх (auto-reload) тохиргоог унтраалттай байлгаарай.</p></div>`;
 }
 
+// =============== consistent scoring of written tasks ===============
+// The same answer must get the same points, whoever's sheet it is and whenever it is graded:
+//  1. criteria with points: from the teacher's rubric, or fixed once by AI;
+//  2. one scoring guide per task, made once per exam and reused for every sheet (shown to the teacher, editable);
+//  3. answers the teacher has already confirmed go into the prompt as the reference standard;
+//  4. points are added up by the app from the per-criterion scores, not chosen by AI as a whole;
+//  5. an identical answer gets the confirmed points; a near-identical one with other points is flagged;
+//  6. the same images are not sent twice (the earlier result is reused);
+//  7. a check in the report scores all answers of a task side by side; the teacher approves each change.
+const wOwn = (ex, i, v, f) => { const w = (ex.written || [])[i] || {}; return nVer(ex) > 1 && v && v !== V0(ex) ? (w.v?.[v]?.[f] ?? '') : (w[f] ?? ''); };
+function setOwn(ex, i, v, f, val) { const w = ex.written[i]; if (nVer(ex) > 1 && v && v !== V0(ex)) { w.v = w.v || {}; w.v[v] = w.v[v] || {}; w.v[v][f] = val; } else w[f] = val; }
+const fnv = s => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36); };
+const wSig = (ex, i, v) => fnv(`${wText(ex, i, v, 'prompt')}|${wText(ex, i, v, 'rubric')}|${+ex.written[i]?.max || 0}`);
+const guideOk = (ex, i, v) => !!String(wOwn(ex, i, v, 'guide') || '').trim() && wOwn(ex, i, v, 'gsig') === wSig(ex, i, v);
+const r05 = x => Math.round((+x || 0) * 2) / 2;
+// "Томьёо зөв (1 оноо); орлуулсан (1); хариу нэгжтэй (1)" -> [{t, p}], only when every part has points adding up to max
+function parseCriteria(rubric, max) {
+  const parts = String(rubric || '').split(/\n|;/).map(s => s.trim().replace(/^(?:[-–•*]|\d+[.)])\s+/, '').trim()).filter(Boolean);
+  if (!parts.length) return null;
+  const out = parts.map(t => {
+    const m = t.match(/[(\[]\s*(\d+(?:[.,]\d+)?)\s*(?:оноо|о\.?|pts?|points?|marks?)?\s*[)\]]\s*\.?$/i) || t.match(/[-–—:]\s*(\d+(?:[.,]\d+)?)\s*(?:оноо|pts?|points?|marks?)\s*\.?$/i);
+    return m ? { t: t.slice(0, m.index).replace(/[\s,:–—-]+$/, '').trim() || t, p: parseFloat(m[1].replace(',', '.')) } : { t, p: null };
+  });
+  if (out.some(c => !(c.p > 0))) return null;
+  return Math.abs(out.reduce((a, c) => a + c.p, 0) - (+max || 0)) < 0.01 ? out : null;
+}
+const rubricSum = rubric => { let s = 0, any = false; String(rubric || '').replace(/[(\[]\s*(\d+(?:[.,]\d+)?)\s*(?:оноо|о\.?)?\s*[)\]]/gi, (_, n) => { s += parseFloat(n.replace(',', '.')); any = true; return _; }); return any ? s : null; };
+function critOf(ex, i, v) {
+  const max = +ex.written[i]?.max || 0, own = parseCriteria(wText(ex, i, v, 'rubric'), max); if (own) return own;
+  const c = wOwn(ex, i, v, 'crit');
+  return Array.isArray(c) && c.length && guideOk(ex, i, v) && Math.abs(c.reduce((a, x) => a + (+x.p || 0), 0) - max) < 0.01 ? c : null;
+}
+// per-criterion scores from an AI reply -> total (added up here, clamped to each criterion and to the task)
+function ptsFrom(crit, a, max) {
+  if (crit && Array.isArray(a?.steps) && a.steps.length) {
+    const steps = crit.map((c, k) => { const s = a.steps.find(x => +x.c === k + 1) || {}; return { t: c.t, max: c.p, p: Math.min(c.p, Math.max(0, r05(s.points))), ev: String(s.evidence || '').slice(0, 160) }; });
+    return { pts: Math.min(max, steps.reduce((x, s) => x + s.p, 0)), steps };
+  }
+  return { pts: Math.min(max, Math.max(0, r05(a?.points))), steps: [] };
+}
+
+// ---- scoring guide, made once per exam ----
+async function genGuide(src, v, idx) {
+  const tasks = idx.map(i => { const max = +src.written[i].max || 0, own = parseCriteria(wText(src, i, v, 'rubric'), max);
+    return { n: i + 1, task: wText(src, i, v, 'prompt'), maxPoints: max, ...(own ? { criteria: own.map(c => ({ text: c.t, points: c.p })) } : { rubric: wText(src, i, v, 'rubric') }) }; });
+  const prompt = `You prepare a fixed scoring guide for open-ended tasks in a Mongolian school exam (subject: ${src.subject || 'unspecified'}). The teacher's AI assistant will apply it to every student's answer, so that equal answers always get equal points.
+For each task: when "criteria" is given, keep those criteria and points exactly; otherwise turn the rubric (or, when it is empty, the task itself) into 2-6 observable criteria whose points add up to maxPoints exactly (steps of 0.5).
+For every criterion write, in Mongolian, what earns its full points, when partial points are allowed and how many, what earns zero, and which equivalent answers are accepted (other wording, notation, units, order). Be concise and concrete; do not change what the task asks.
+Tasks (JSON): ${JSON.stringify(tasks)}
+Reply with only JSON: {"tasks":[{"n":1,"criteria":[{"text":"","points":1}],"guide":"1) <criterion> — бүтэн оноо: …; хэсэгчилсэн: …; 0 оноо: …; зөвшөөрөх хувилбар: …\\n2) …"}]}`;
+  const out = await Cap.sample.json(prompt);
+  return (out?.tasks || []).map(t => {
+    const i = (+t.n || 0) - 1; if (!idx.includes(i)) return null;
+    const max = +src.written[i].max || 0;
+    let crit = (t.criteria || []).map(c => ({ t: String(c.text || '').trim().slice(0, 200), p: r05(c.points) })).filter(c => c.t && c.p > 0);
+    if (Math.abs(crit.reduce((a, c) => a + c.p, 0) - max) >= 0.01) crit = [];
+    return { i, guide: String(t.guide || '').trim().slice(0, 3000), crit };
+  }).filter(r => r && r.guide);
+}
+function applyGuide(d, v, res) { res.forEach(r => { setOwn(d, r.i, v, 'guide', r.guide); setOwn(d, r.i, v, 'crit', r.crit); setOwn(d, r.i, v, 'gsig', wSig(d, r.i, v)); }); }
+const guideJobs = new Map(), guideTried = new Set();
+async function ensureGuide(ex, v) {
+  if (!Cap.sample || !ex) return ex;
+  const idx = (ex.written || []).map((_, i) => i).filter(i => !guideOk(ex, i, v) && String(wText(ex, i, v, 'prompt')).trim());
+  if (!idx.length) return ex;
+  const key = ex.id + '|' + (v || ''), tkey = key + '|' + idx.map(i => wSig(ex, i, v)).join(',');
+  if (guideTried.has(tkey)) return ex; // tried this session without a usable guide: grade with the rubric, don't pay again
+  if (!guideJobs.has(key)) guideJobs.set(key, (async () => {
+    try { const res = await genGuide(ex, v, idx); const x = clone(exam(ex.id) || ex); applyGuide(x, v, res); if (res.length) await put('exams', x); return x; }
+    finally { guideTried.add(tkey); guideJobs.delete(key); }
+  })());
+  return guideJobs.get(key);
+}
+async function guideDraft(i, v) {
+  const d = UI.draft?.data; if (!d || !Cap.sample || UI.guideBusy) return;
+  UI.guideBusy = `${i}|${v || ''}`; render();
+  try {
+    const res = await genGuide(d, v, [i]);
+    if (UI.draft?.data === d && res.length) { applyGuide(d, v, res); markDirty(); toast('Үнэлгээний заавар бэлэн. Шалгаад «Хадгалах» дарна уу.' + aiCostNote()); }
+    else if (!res.length) toast('Заавар гаргаж чадсангүй. Дахин оролдоно уу.', true);
+  } catch (e) { toast(aiErr(e), true); }
+  UI.guideBusy = ''; render();
+}
+// what the exam editor shows under each task's rubric
+function guideBlock(d, i, v) {
+  const max = +d.written[i].max || 0, rub = wText(d, i, v, 'rubric'), own = parseCriteria(rub, max), sum = rubricSum(rub), crit = critOf(d, i, v);
+  const g = String(wOwn(d, i, v, 'guide') || ''), stale = g.trim() && !guideOk(d, i, v), busy = UI.guideBusy === `${i}|${v || ''}`;
+  const dv = v && v !== V0(d) ? ` data-v="${v}"` : '';
+  const critTxt = crit ? crit.map((c, k) => `${k + 1}) ${esc(c.t)} — ${fmt(c.p)}`).join(' · ') : '';
+  return `<label class="field">Үнэлгээний нэгдсэн заавар <span class="small muted">(AI бүх сурагчид яг ижил хэрэглэнэ)</span><textarea data-w="guide" data-i="${i}"${dv} rows="3" placeholder="AI анх үнэлэхдээ шалгуур тус бүрд бүтэн, хэсэгчилсэн, 0 оноо өгөх нөхцөл, зөвшөөрөх хувилбаруудыг автоматаар бичнэ. Та засаж болно.">${esc(g)}</textarea></label>
+    <div class="row small">${own ? `<span class="pill ok">Шалгуур ${own.length} алхам · ${fmt(max)} оноо</span>` : sum != null ? `<span class="pill warn">Шалгуурын оноо ${fmt(sum)}, дээд оноо ${fmt(max)}: таарахгүй байна</span>` : crit ? '<span class="pill acc">AI тогтоосон шалгуур</span>' : '<span class="muted">Шалгуурт оноог «(1 оноо)» гэж бичвэл AI алхам бүрийг тусад нь үнэлнэ.</span>'}
+      ${stale ? '<span class="pill warn">Даалгавар эсвэл шалгуур өөрчлөгдсөн: заавар дараагийн AI үнэлгээнд шинэчлэгдэнэ</span>' : ''}
+      ${Cap.sample && String(wText(d, i, v, 'prompt')).trim() ? `<button class="btn sm" data-act="guideAI" data-i="${i}"${dv} ${busy ? 'disabled' : ''}>${busy ? '<span class="busy"></span>Бичиж байна' : ic('sparkles') + (g.trim() ? 'Зааврыг AI-аар шинэчлэх' : 'AI-аар заавар гаргах')}</button>` : ''}</div>
+    ${critTxt && !own ? `<p class="small muted">${critTxt}</p>` : ''}`;
+}
+
+// ---- references: answers the teacher has confirmed for this task ----
+function refAnswers(ex, v, excludeId) {
+  const multiV = nVer(ex) > 1, out = [];
+  (ex.written || []).forEach((w, i) => {
+    const c = attemptsOf(ex.id).filter(a => a.id !== excludeId && (!multiV || (a.version || V0(ex)) === (v || V0(ex))))
+      .map(a => ({ a, x: (a.written || [])[i] || {} })).filter(o => String(o.x.transcript || '').trim() && o.x.points !== '' && !isNaN(parseFloat(o.x.points)));
+    if (!c.length) return;
+    const edited = c.filter(o => o.x.aiPts != null && parseFloat(o.x.points) !== +o.x.aiPts).sort((p, q) => (q.a.updatedAt || 0) - (p.a.updatedAt || 0));
+    const by = c.slice().sort((p, q) => parseFloat(p.x.points) - parseFloat(q.x.points));
+    const seen = new Set();
+    [...edited.slice(0, 2), by[0], by[Math.floor(by.length / 2)], by[by.length - 1]].filter(o => o && !seen.has(o.a.id) && seen.add(o.a.id)).slice(0, 3)
+      .forEach(o => out.push({ n: i + 1, answer: String(o.x.transcript).slice(0, 400), points: parseFloat(o.x.points), maxPoints: +w.max || 0,
+        ...(o.x.steps?.length ? { criteria: o.x.steps.map((s, k) => ({ c: k + 1, points: s.p })) } : {}), ...(o.x.aiPts != null && parseFloat(o.x.points) !== +o.x.aiPts ? { correctedByTeacher: true } : {}) }));
+  });
+  return out;
+}
+// ---- identical and near-identical answers ----
+const normAns = s => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[\s.,;:!?'"«»“”()[\]{}\-–—_*]/g, '');
+const tri = s => { const m = new Map(); for (let i = 0; i < s.length - 2; i++) { const k = s.slice(i, i + 3); m.set(k, (m.get(k) || 0) + 1); } return m; };
+function simAns(a, b) {
+  const x = normAns(a), y = normAns(b); if (!x || !y) return 0; if (x === y) return 1;
+  if (Math.min(x.length, y.length) < 12) return 0;
+  const A = tri(x), B = tri(y); let inter = 0, n = 0; A.forEach((c, k) => { n += c; inter += Math.min(c, B.get(k) || 0); }); B.forEach(c => { n += c; });
+  return n ? 2 * inter / n : 0;
+}
+function similarDone(ex, i, v, transcript, excludeId) {
+  let best = null;
+  attemptsOf(ex.id).forEach(a => {
+    if (a.id === excludeId || (nVer(ex) > 1 && (a.version || V0(ex)) !== (v || V0(ex)))) return;
+    const x = (a.written || [])[i]; if (!x || x.points === '' || isNaN(parseFloat(x.points)) || !String(x.transcript || '').trim()) return;
+    const s = simAns(transcript, x.transcript); if (s >= 0.85 && (!best || s > best.s)) best = { s, a, x, pts: parseFloat(x.points) };
+  });
+  return best;
+}
+const AI_SEEN = new Map(); // images + task text -> earlier reply, for this session
+async function imgKey(imgs, extra) {
+  try {
+    const parts = await Promise.all(imgs.map(async b => { const buf = await (typeof b === 'string' ? (await fetch(b)).blob() : b).arrayBuffer(); const h = await crypto.subtle.digest('SHA-256', buf); return [...new Uint8Array(h)].slice(0, 12).map(x => x.toString(16).padStart(2, '0')).join(''); }));
+    return parts.join('.') + '|' + fnv(extra);
+  } catch { return ''; }
+}
+
+// ---- report: how consistent the scores are, and a side-by-side check ----
+function consistencyCard(ex, R) {
+  if (!(ex.written || []).length || !R.n) return '';
+  const rows = ex.written.map((w, i) => {
+    const xs = R.recs.map(r => ({ r, x: (r.at.written || [])[i] || {} })).filter(o => o.x.points !== '' && o.x.points != null && !isNaN(parseFloat(o.x.points)));
+    const ai = xs.filter(o => o.x.aiPts != null), ed = ai.filter(o => parseFloat(o.x.points) !== +o.x.aiPts);
+    const mad = ed.length ? ed.reduce((a, o) => a + Math.abs(parseFloat(o.x.points) - o.x.aiPts), 0) / ed.length : 0;
+    const t = xs.filter(o => normAns(o.x.transcript)).map(o => ({ ...o, nrm: normAns(o.x.transcript) })), pairs = [];
+    t.forEach(o => { o.tg = o.nrm.length >= 12 ? tri(o.nrm) : null; });
+    for (let a = 0; a < t.length; a++) for (let b = a + 1; b < t.length; b++) {
+      const d = Math.abs(parseFloat(t[a].x.points) - parseFloat(t[b].x.points)); if (d < 0.5) continue;
+      if (nVer(ex) > 1 && (t[a].r.at.version || V0(ex)) !== (t[b].r.at.version || V0(ex))) continue;
+      let s = t[a].nrm === t[b].nrm ? 1 : 0;
+      if (!s && t[a].tg && t[b].tg) { let inter = 0, n = 0; t[a].tg.forEach((c, k) => { n += c; inter += Math.min(c, t[b].tg.get(k) || 0); }); t[b].tg.forEach(c => { n += c; }); s = n ? 2 * inter / n : 0; }
+      if (s >= 0.85) pairs.push({ a: t[a], b: t[b], s, d });
+    }
+    return { i, n: xs.length, ai: ai.length, ed: ed.length, mad, pairs: pairs.sort((p, q) => q.s - p.s || q.d - p.d).slice(0, 6) };
+  });
+  const B = UI.batch?.examId === ex.id ? UI.batch : null, busy = UI.batchBusy;
+  const nm = o => `<button class="btn link sm" data-act="editAttempt" data-id="${o.r.at.id}">${esc(o.r.name)}${o.r.code ? ` (${esc(o.r.code)})` : ''}</button> <span class="mono">${fmt(parseFloat(o.x.points))}</span>`;
+  return `<div class="card"><div class="spread"><h2>Задгай даалгаврын үнэлгээний тууштай байдал</h2>
+      ${Cap.sample ? `<button class="btn" data-act="aiBatch" ${busy ? 'disabled' : ''}>${busy ? '<span class="busy"></span>Тулгаж байна' : ic('scale') + 'Бүх хариултыг AI-аар нэг дор тулгах'}</button>` : ''}</div>
+    <p class="small muted">Ижил чанартай хариулт ижил оноо авсан эсэхийг шалгана. AI нэг шалгалтын бүх хуудсанд нэг үнэлгээний заавар, таны баталсан жишиг хариултыг ашиглаж, оноог шалгуур тус бүрээр нэмж тооцдог. «Нэг дор тулгах» нь даалгаврын бүх хариултыг зэрэгцүүлж дахин үнэлээд, зөрүүтэйг нь танд санал болгоно. Таны батлаагүй оноо өөрчлөгдөхгүй.</p>
+    <div class="tablebox"><table><thead><tr><th>Даалгавар</th><th class="num">Үнэлсэн</th><th class="num">AI үнэлсэн</th><th class="num">Багш зассан</th><th class="num">AI-багшийн тохирол</th><th class="num">Дундаж зөрүү</th><th class="num">Төстэй ч өөр оноотой</th></tr></thead><tbody>
+      ${rows.map(x => `<tr><td><b>${x.i + 1}-р даалгавар</b></td><td class="num">${x.n}</td><td class="num">${x.ai}</td><td class="num">${x.ed}</td><td class="num">${x.ai ? pctTxt((x.ai - x.ed) / x.ai * 100) : '—'}</td><td class="num">${x.ed ? fmt(Math.round(x.mad * 10) / 10) + ' оноо' : '—'}</td><td class="num">${x.pairs.length ? `<span class="pill warn">${x.pairs.length}</span>` : '<span class="pill ok">0</span>'}</td></tr>`).join('')}
+    </tbody></table></div>
+    ${rows.some(x => x.pairs.length) ? `<div class="stack" style="gap:6px"><span class="eyebrow">Шалгах шаардлагатай хос</span><ul class="tips">${rows.flatMap(x => x.pairs.map(p => `<li><b>${x.i + 1}-р даалгавар:</b> ${nm(p.a)} ↔ ${nm(p.b)} · хариулт ${Math.round(p.s * 100)}% ижил, оноо ${fmt(p.d)}-ээр зөрүүтэй</li>`)).join('')}</ul></div>` : ''}
+    ${UI.batchMsg ? `<p class="notice ${UI.batchErr ? 'bad' : busy ? '' : 'ok'}">${busy ? '<span class="busy"></span>' : ic(UI.batchErr ? 'triangle-alert' : 'scale')}<span>${esc(UI.batchMsg)}</span></p>` : ''}
+    ${B && B.props.length ? `<div class="stack" style="gap:8px"><span class="eyebrow">AI-ийн санал (${B.props.length})</span>
+      <div class="tablebox"><table><thead><tr><th></th><th>Сурагч</th><th>Даалгавар</th><th class="num">Одоо</th><th class="num">Санал</th><th>Шалтгаан</th></tr></thead><tbody>
+      ${B.props.map((p, k) => `<tr><td><input type="checkbox" data-bt="${k}" ${p.on ? 'checked' : ''} aria-label="Батлах"></td><td class="name"><button class="btn link sm" data-act="editAttempt" data-id="${p.aid}">${esc(p.name)}</button>${p.code ? ` <span class="mono small muted">${esc(p.code)}</span>` : ''}</td><td>${p.i + 1}</td><td class="num">${p.cur == null ? '—' : fmt(p.cur)}</td><td class="num"><b>${fmt(p.pts)}</b></td><td class="wrapcell small">${esc(p.reason)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="row"><button class="btn primary" data-act="batchApply">${ic('check')}Сонгосныг батлах</button><button class="btn" data-act="batchClose">Болих</button><span class="small muted">Хуучин оноо хуудасны түүхэнд хадгалагдана.</span></div></div>` : ''}
+  </div>`;
+}
+async function aiBatch(ex) {
+  if (!Cap.sample || UI.batchBusy) return;
+  const R = analyze(ex, { classId: UI.repClass, version: UI.repV }), vs = nVer(ex) > 1 ? ex.versions : [''], props = [];
+  UI.batchBusy = true; UI.batchErr = false; UI.batch = null; UI.batchMsg = 'Claude даалгавар бүрийн бүх хариултыг нэг стандартаар зэрэгцүүлж үнэлж байна…'; render();
+  const u0 = aiUsage().usd;
+  try {
+    for (const v of vs) {
+      const recs = R.recs.filter(r => nVer(ex) < 2 || (r.at.version || V0(ex)) === (v || V0(ex)));
+      if (!recs.length) continue;
+      let ex2 = ex; try { ex2 = (await ensureGuide(ex, v)) || ex; } catch {}
+      for (let i = 0; i < ex2.written.length; i++) {
+        const max = +ex2.written[i].max || 0, crit = critOf(ex2, i, v);
+        const items = recs.map(r => ({ r, x: (r.at.written || [])[i] || {} })).filter(o => String(o.x.transcript || o.x.typed || '').trim());
+        for (let k = 0; k < items.length; k += 30) {
+          const chunk = items.slice(k, k + 30);
+          const task = { task: wText(ex2, i, v, 'prompt'), maxPoints: max, ...(crit ? { criteria: crit.map((c, j) => ({ c: j + 1, text: c.t, points: c.p })) } : { rubric: wText(ex2, i, v, 'rubric') }), ...(guideOk(ex2, i, v) ? { guide: wOwn(ex2, i, v, 'guide') } : {}) };
+          const prompt = `You check that one open-ended task in a Mongolian school exam (subject: ${ex.subject || 'unspecified'}) was scored consistently. Score every answer below with exactly the same standard, comparing the answers with each other: equivalent answers must get equal points, and a better answer never gets fewer points than a weaker one.
+Task (JSON): ${JSON.stringify(task)}
+Answers (JSON): ${JSON.stringify(chunk.map((o, j) => ({ id: 'A' + (j + 1), answer: String(o.x.transcript || o.x.typed).slice(0, 700) })))}
+${crit ? 'For each answer give the points for every criterion ("c", steps of 0.5, never above that criterion\'s points).' : 'For each answer give the points from 0 to maxPoints in steps of 0.5.'} Add one short reason in Mongolian.
+Reply with only JSON: {"scores":[{"id":"A1",${crit ? '"steps":[{"c":1,"points":1}],' : ''}"points":2,"reason":""}]}`;
+          const out = await Cap.sample.json(prompt);
+          (out?.scores || []).forEach(s => {
+            const o = chunk[(parseInt(String(s.id).replace(/\D/g, ''), 10) || 0) - 1]; if (!o) return;
+            const { pts, steps } = ptsFrom(crit, s, max), cur = parseFloat(o.x.points);
+            if (isNaN(cur) || Math.abs(pts - cur) >= 0.5) props.push({ aid: o.r.at.id, name: o.r.name, code: o.r.code, i, cur: isNaN(cur) ? null : cur, pts, steps, reason: String(s.reason || '').slice(0, 300), on: true });
+          });
+        }
+      }
+    }
+    UI.batch = { examId: ex.id, props };
+    UI.batchMsg = (props.length ? `${props.length} хариултын оноо бусадтайгаа харьцуулахад зөрүүтэй гарлаа. Шалгаад батлах оноогоо сонгоно уу.` : 'Бүх хариултын оноо тууштай байна. Өөрчлөх санал алга.') + aiSpentNote(u0);
+  } catch (e) { UI.batchMsg = aiErr(e); UI.batchErr = true; }
+  UI.batchBusy = false; render();
+}
+async function batchApply(ex) {
+  const B = UI.batch; if (!B || B.examId !== ex.id) return;
+  const sel = B.props.filter(p => p.on); let n = 0;
+  for (const aid of [...new Set(sel.map(p => p.aid))]) {
+    const at0 = S.attempts.find(a => a.id === aid); if (!at0) continue;
+    const at = clone(at0);
+    at.history = [...(at.history || []), { answers: at0.answers, written: at0.written, score: at0.score, at: at0.updatedAt, source: 'before-check' }].slice(-5);
+    sel.filter(p => p.aid === aid).forEach(p => { at.written[p.i] = { ...(at.written[p.i] || {}), points: String(p.pts), ...(p.steps.length ? { steps: p.steps } : {}), checked: true }; n++; });
+    at.score = calc(ex, at); await put('attempts', at);
+  }
+  UI.batch = null; UI.batchMsg = ''; toast(`${n} хариултын оноог шинэчиллээ.`); render();
+}
+
 // =============== AI (Claude) ===============
 function aiErr(e) {
   return ({
@@ -2288,41 +2512,67 @@ function aiErr(e) {
   })[e?.code] || 'AI-тай холбогдож чадсангүй. Дахин оролдоно уу.';
 }
 async function gradeWritten() {
-  const ex = exam(E?.examId); if (!E || !ex || !Cap.sample) return;
+  const ex0 = exam(E?.examId); if (!E || !ex0 || !Cap.sample) return;
   const ed = E;
   const typed = ed.written.map(w => (w.typed || '').trim());
   const imgs = [];
-  const main = wrPage(ex) === 2 ? ed.back : ed.crop;
+  const main = wrPage(ex0) === 2 ? ed.back : ed.crop;
   if (main) imgs.push(main);
   imgs.push(...ed.extra);
   const useImages = imgs.length && Cap.canImages;
   const boxes = 'Each box is labelled "Даалгавар N" (task N) and shows the printed task text in a grey band at the top; the student\'s handwritten answer is on the ruled lines below it, usually in Mongolian Cyrillic. Do not transcribe the printed task text or the "Оноо: ___ / N" field.';
-  const mainNote = !useImages || !main ? '' : wrPage(ex) === 2
+  const mainNote = !useImages || !main ? '' : wrPage(ex0) === 2
     ? `Image 1 is page 2 of the student's answer sheet, which holds only the written tasks. ${boxes}`
     : `Image 1 is the written section of the student's answer sheet. ${boxes}`;
   const extraNote = !useImages || !ed.extra.length ? '' : main ? 'The other images are extra pages of the student\'s written work.'
-    : ex.writtenOn === 'paper' ? 'The images are photos of the student\'s exam paper, part II (Задгай даалгавар), where each task N is solved in a table with Өгсөн / Олох / Бодолт / Хариу cells, usually in Mongolian Cyrillic. Ignore part I (multiple choice) and the printed task text.'
+    : ex0.writtenOn === 'paper' ? 'The images are photos of the student\'s exam paper, part II (Задгай даалгавар), where each task N is solved in a table with Өгсөн / Олох / Бодолт / Хариу cells, usually in Mongolian Cyrillic. Ignore part I (multiple choice) and the printed task text.'
     : 'The images are pages of the student\'s written work.';
   if (!useImages && !typed.some(Boolean)) { ed.aiMsg = 'Үнэлэх хариулт алга. Зураг нэмэх эсвэл хариултын текстийг бичнэ үү.'; ed.aiState = 'error'; refreshEditor(); return; }
-  if (nVer(ex) > 1 && !ed.version) { ed.aiMsg = 'Эхлээд хувилбараа сонгоно уу. Хувилбар бүр өөр бодлоготой.'; ed.aiState = 'error'; refreshEditor(); return; }
+  if (nVer(ex0) > 1 && !ed.version) { ed.aiMsg = 'Эхлээд хувилбараа сонгоно уу. Хувилбар бүр өөр бодлоготой.'; ed.aiState = 'error'; refreshEditor(); return; }
+  const v = ed.version;
   ed.aiState = 'busy'; ed.aiMsg = 'AI задгай даалгаврыг уншиж, шалгуураар үнэлж байна…'; refreshEditor();
-  const tasks = ex.written.map((w, i) => ({ n: i + 1, task: wText(ex, i, ed.version, 'prompt'), maxPoints: +w.max || 0, rubric: wText(ex, i, ed.version, 'rubric'), typedAnswer: typed[i] || undefined }));
-  const prompt = `You assist a Mongolian school teacher grading open-ended answers (subject: ${ex.subject || 'unspecified'}${ed.version ? ', exam version ' + ed.version : ''}).
+  const u0 = aiUsage().usd;
+  // one scoring guide for the whole exam, made the first time and reused for every sheet
+  let ex = ex0;
+  if (ex0.written.some((_, i) => !guideOk(ex0, i, v))) { ed.aiMsg = 'AI шалгалтын бүх хуудсанд ижил хэрэглэх үнэлгээний зааврыг бэлтгэж байна…'; refreshEditor(); try { ex = (await ensureGuide(ex0, v)) || ex0; } catch { ex = exam(ex0.id) || ex0; } }
+  const crits = ex.written.map((_, i) => critOf(ex, i, v));
+  const tasks = ex.written.map((w, i) => ({ n: i + 1, task: wText(ex, i, v, 'prompt'), maxPoints: +w.max || 0,
+    ...(crits[i] ? { criteria: crits[i].map((c, k) => ({ c: k + 1, text: c.t, points: c.p })) } : { rubric: wText(ex, i, v, 'rubric') }),
+    ...(guideOk(ex, i, v) ? { guide: wOwn(ex, i, v, 'guide') } : {}), typedAnswer: typed[i] || undefined }));
+  const refs = refAnswers(ex, v, ed.attemptId);
+  const prompt = `You assist a Mongolian school teacher grading open-ended answers (subject: ${ex.subject || 'unspecified'}${v ? ', exam version ' + v : ''}).
 ${mainNote}
 ${extraNote}
 When a task has "typedAnswer", that text is the student's answer for that task; otherwise read it from the images.
-Tasks with rubric (JSON): ${JSON.stringify(tasks)}
-For every task: copy the student's answer exactly ("transcript"), check each rubric step, award points from 0 to maxPoints in steps of 0.5 strictly by the rubric ("points"), and write 1-3 sentences of feedback in Mongolian: what is correct, what is missing, one improvement tip ("feedback"). Empty or unreadable answer: 0 points and say so.
-Reply with only JSON: {"answers":[{"n":1,"transcript":"...","points":2,"feedback":"..."}]}`;
+Scoring rules: the same standard for every student of this exam.
+- Score each criterion on its own: give its points only when the answer clearly shows it; give part of them (steps of 0.5) only when the guide allows partial credit and the answer partly shows it; otherwise 0.
+- Follow the scoring guide literally. Do not reward length, neatness or extra content, and do not take points off for spelling or wording unless a criterion asks for it.
+- Equivalent answers must get equal points.${refs.length ? ' The reference answers were scored or corrected by the teacher: apply exactly their standard.' : ''}
+- A task without criteria is scored as a whole from 0 to maxPoints in steps of 0.5.
+- Set "unsure": true when the handwriting is hard to read or the answer could reasonably be scored two ways.
+Tasks (JSON): ${JSON.stringify(tasks)}
+${refs.length ? `Reference answers (JSON): ${JSON.stringify(refs)}` : ''}
+For every task: copy the student's answer exactly ("transcript"); for each criterion give "c", "points" and a short "evidence" quote from the answer ("" when missing); write 1-3 sentences of feedback in Mongolian: what is correct, what is missing, one improvement tip ("feedback").
+Reply with only JSON: {"answers":[{"n":1,"transcript":"...","steps":[{"c":1,"points":1,"evidence":"..."}],"points":2,"unsure":false,"feedback":"..."}]}`;
   try {
-    const out = await Cap.sample.json(prompt, useImages ? { images: imgs.slice(0, Cap.maxImages) } : {});
+    const send = useImages ? imgs.slice(0, Cap.maxImages) : [];
+    const key = await imgKey(send, JSON.stringify(tasks));
+    let out = key && AI_SEEN.get(key), reused = !!out;
+    if (!out) { out = await Cap.sample.json(prompt, send.length ? { images: send } : {}); if (key) AI_SEEN.set(key, out); }
     if (E !== ed) return;
+    const notes = [];
     (out?.answers || []).forEach(a => {
       const i = (+a.n || 0) - 1; if (!ed.written[i]) return;
-      const m = +ex.written[i].max || 0;
-      ed.written[i] = { ...ed.written[i], points: String(Math.min(m, Math.max(0, Math.round((+a.points || 0) * 2) / 2))), transcript: String(a.transcript || ''), feedback: String(a.feedback || ''), ai: true };
+      const m = +ex.written[i].max || 0, tr = String(a.transcript || '');
+      let { pts, steps } = ptsFrom(crits[i], a, m), same = '';
+      const sim = tr.trim() ? similarDone(ex, i, v, tr, ed.attemptId) : null;
+      if (sim && sim.s === 1 && sim.pts !== pts) { notes.push(`${i + 1}-р даалгаврын хариулт өмнө үнэлсэн ${sim.a.name}-ийн хариулттай яг ижил тул ижил оноо (${fmt(sim.pts)}) өглөө.`); pts = Math.min(m, sim.pts); const ss = sim.x.steps || []; steps = ss.length && Math.abs(ss.reduce((x, y) => x + (+y.p || 0), 0) - sim.pts) < 0.01 ? ss : []; same = sim.a.id; }
+      else if (sim && sim.s < 1 && Math.abs(sim.pts - pts) >= 0.5) notes.push(`${i + 1}-р даалгаврын хариулт ${sim.a.name}-ийн хариулттай ${Math.round(sim.s * 100)}% ижил боловч тэр ${fmt(sim.pts)} оноо авсан. Харьцуулж шалгана уу.`);
+      if (a.unsure) notes.push(`${i + 1}-р даалгаврыг AI эргэлзээтэй гэж тэмдэглэв: анхааралтай шалгана уу.`);
+      ed.written[i] = { ...ed.written[i], points: String(pts), transcript: tr, feedback: String(a.feedback || ''), ai: true, aiPts: pts, steps, unsure: !!a.unsure, same };
     });
-    ed.aiState = 'done'; ed.aiMsg = 'AI санал болгосон оноог шалгаад, шаардлагатай бол засна уу.' + aiCostNote();
+    ed.aiState = 'done';
+    ed.aiMsg = (reused ? 'Энэ зургийг өмнө үнэлсэн тул өмнөх үр дүнг ашиглалаа. ' : '') + 'AI санал болгосон оноог шалгаад, шаардлагатай бол засна уу.' + (notes.length ? ' ' + notes.join(' ') : '') + (reused ? '' : aiSpentNote(u0));
   } catch (e) { if (E !== ed) return; ed.aiState = 'error'; ed.aiMsg = aiErr(e); }
   refreshEditor();
 }
@@ -2439,7 +2689,7 @@ async function commitEditor(next, force) {
   }
   Object.assign(at, {
     studentId: st.id, studentCode: st.code, name: fullName(st), version: nVer(ex) > 1 ? E.version : '', answers: E.answers.slice(0, ex.count), flags: E.flags.slice(0, ex.count).map(Boolean),
-    written: E.written.map(w => ({ points: w.points, transcript: w.transcript, feedback: w.feedback, typed: w.typed || '' })),
+    written: E.written.map(w => ({ points: w.points, transcript: w.transcript, feedback: w.feedback, typed: w.typed || '', ...(w.ai ? { ai: true, aiPts: w.aiPts ?? null } : {}), ...(w.steps?.length ? { steps: w.steps } : {}), ...(w.unsure ? { unsure: true } : {}), ...(w.checked ? { checked: true } : {}) })),
     source: E.source === 'edit' ? (existing?.source || 'manual') : E.source, keyVersion: ex.keyVersion,
   });
   at.score = calc(ex, at);
@@ -3095,7 +3345,8 @@ function tabWritten(d) {
     const first = !v || v === vs[0], src = first ? t : (t.v?.[v] || {}), dv = first ? '' : ` data-v="${v}"`;
     return `${vs.length > 1 ? `<p class="small"><span class="pill acc">${v} хувилбар</span></p>` : ''}
       <label class="field"><span class="req">Даалгавар / асуулт</span><textarea data-w="prompt" data-i="${i}"${dv} rows="2">${esc(src.prompt)}</textarea></label>
-      <label class="field">Үнэлгээний шалгуур (rubric): алхам бүр ба оноо<textarea data-w="rubric" data-i="${i}"${dv} rows="3" placeholder="ж: Томьёог зөв бичсэн (1 оноо); орлуулж бодсон (1); нэгжтэй зөв хариу (1)">${esc(src.rubric)}</textarea></label>`;
+      <label class="field">Үнэлгээний шалгуур (rubric): алхам бүр ба оноо<textarea data-w="rubric" data-i="${i}"${dv} rows="3" placeholder="ж: Томьёог зөв бичсэн (1 оноо); орлуулж бодсон (1); нэгжтэй зөв хариу (1)">${esc(src.rubric)}</textarea></label>
+      ${guideBlock(d, i, v)}`;
   };
   return `<div class="card">
     <div class="spread"><h2>II хэсэг. Задгай даалгавар</h2>${w.length < MAX_WR ? `<button class="btn" data-act="addWritten">${ic('plus')}Даалгавар нэмэх</button>` : ''}</div>
@@ -3117,7 +3368,7 @@ function normalizeKey(d) {
   d.key = nk(d.key);
   const keys = {}; d.versions.slice(1).forEach(v => { keys[v] = nk(d.keys?.[v]); }); d.keys = keys;
   (d.written || []).forEach(w => {
-    if (d.versions.length > 1) { const o = {}; d.versions.slice(1).forEach(v => { o[v] = { prompt: w.v?.[v]?.prompt || '', rubric: w.v?.[v]?.rubric || '' }; }); w.v = o; }
+    if (d.versions.length > 1) { const o = {}; d.versions.slice(1).forEach(v => { o[v] = { prompt: w.v?.[v]?.prompt || '', rubric: w.v?.[v]?.rubric || '', guide: w.v?.[v]?.guide || '', crit: w.v?.[v]?.crit || [], gsig: w.v?.[v]?.gsig || '' }; }); w.v = o; }
     else delete w.v;
   });
   d.points = Array.from({ length: d.count }, (_, i) => { const v = d.points?.[i]; return v === '' || v == null || isNaN(v) ? null : Math.max(0, +v); });
@@ -3455,6 +3706,8 @@ function edForm(ex) {
       <p class="small muted">${esc(multiV && !E.version ? 'Хувилбараа сонговол даалгавар харагдана.' : wText(ex, i, E.version, 'prompt'))}</p>
       <details ${e.typed ? 'open' : ''}><summary class="small muted">Хариултыг текстээр бичих (зураггүй үед)</summary><textarea data-wt="${i}" rows="2" placeholder="Сурагчийн хариултыг бичнэ үү">${esc(e.typed)}</textarea></details>
       ${e.transcript ? `<div class="transcript">${esc(e.transcript)}</div>` : ''}
+      ${e.steps?.length ? `<ul class="steplist">${e.steps.map(s => `<li><span class="mono">${fmt(s.p)}/${fmt(s.max)}</span><span>${esc(s.t)}${s.ev ? ` <span class="muted">«${esc(s.ev)}»</span>` : ''}</span></li>`).join('')}</ul>${Math.abs(e.steps.reduce((a, s) => a + (+s.p || 0), 0) - parseFloat(e.points)) >= 0.01 ? '<p class="small muted">Оноог гараар өөрчилсөн тул дээрх задаргаа нь AI-ийн анхны санал.</p>' : ''}` : ''}
+      ${e.unsure ? '<span class="pill warn">AI эргэлзээтэй: анхааралтай шалгана уу</span>' : ''}
       ${e.feedback ? `<p class="small">${ic('message-square')} ${esc(e.feedback)}</p>` : ''}</div>`; }).join('')}
   </div>` : ''}
   <div class="row">
@@ -3964,6 +4217,7 @@ function pReports() {
       <li><b>Найдвартай байдал α</b> (Кронбахын альфа): 0.80-аас дээш өндөр, 0.70–0.79 хангалттай, 0.70-аас доош бага.</li>
       <li>Сонголтын тархалтад ногоон нь зөв хариулт, улбар шар нь дээд бүлэг доод бүлгээс олон сонгосон буруу хариулт.</li></ul></div>`;
   }
+  if (tab === 'items') body += consistencyCard(ex, R);
   return head + filters + notices + tabs + body;
 }
 function slipCanvas(ex, list, cm) {
@@ -4460,6 +4714,10 @@ const A = {
   slips: () => downloadSlips(exam(UI.reportExamId)),
   expReport: () => exportReport(exam(UI.reportExamId)),
   aiAdvice: () => aiAdvice(exam(UI.reportExamId)),
+  aiBatch: () => aiBatch(exam(UI.reportExamId)),
+  batchApply: () => batchApply(exam(UI.reportExamId)),
+  batchClose: () => { UI.batch = null; UI.batchMsg = ''; render(); },
+  guideAI: el => guideDraft(+el.dataset.i, el.dataset.v || V0(UI.draft?.data || {})),
   aiComments: () => aiComments(exam(UI.reportExamId)),
   copyText: el => copyText(el.dataset.target),
   g4yDownload: () => g4yDownload(exam(UI.reportExamId)),
@@ -4537,6 +4795,7 @@ document.addEventListener('change', async ev => {
   if (t.id === 'cam' || t.id === 'pick') { const f = t.files[0]; t.value = ''; if (f) handleScanFile(f); return; }
   if (UI.draft && t.dataset.cgw != null) { const w = UI.draft.data.written?.[+t.dataset.cgw]; if (w) { if (t.value) w.cog = t.value; else delete w.cog; markDirty(); } return; }
   if (UI.draft && t.dataset.cogfw != null) { const d = UI.draft.data; d.cog = { fw: t.value, ranges: {} }; (d.written || []).forEach(w => delete w.cog); markDirty(); render(); return; }
+  if (t.dataset.bt != null && UI.batch) { const p = UI.batch.props[+t.dataset.bt]; if (p) p.on = t.checked; return; }
   if (t.id === 'cogFiles') { const f = [...(t.files || [])]; t.value = ''; if (f.length) aiCog(f); return; }
   if (t.id === 'aiModel') { const c = aiConf(); if (c.key) { aiSetConf({ ...c, model: t.value }); aiApiInit(); UI.aiNote = { text: `${aiModel().name} сонгогдлоо.` }; render(); } return; }
   if (t.id === 'lvAuto') { LV.auto = t.checked; try { localStorage.setItem('eduscan-live-auto', t.checked ? '1' : '0'); } catch {} return; }
@@ -4623,6 +4882,7 @@ document.addEventListener('input', ev => {
     const w = UI.draft.data.written[+t.dataset.i], f = t.dataset.w, v = t.dataset.v;
     if (v) { w.v = w.v || {}; w.v[v] = w.v[v] || {}; w.v[v][f] = t.value; }
     else w[f] = f === 'max' ? (parseFloat(t.value) || 0) : t.value;
+    if (f === 'guide') { const d = UI.draft.data, vv = v || V0(d); setOwn(d, +t.dataset.i, vv, 'gsig', wSig(d, +t.dataset.i, vv)); }
     markDirty(); return;
   }
   if (E && t.dataset.wp != null) { E.written[+t.dataset.wp].points = t.value; $('#edScore').innerHTML = scoreHtml(calc(exam(E.examId), { answers: E.answers, written: E.written, version: E.version }), exam(E.examId)); return; }
