@@ -1,5 +1,6 @@
-// EduScan cloud: Google sign-in (Firebase Auth) and live sync (Firestore) for the stand-alone web app.
-// Exposes window.EDU_CLOUD = { ready, signIn, signOut } when firebase-config.js holds a config.
+// EduScan cloud: Google or e-mail sign-in (Firebase Auth) and live sync (Firestore) for the stand-alone web app.
+// Exposes window.EDU_CLOUD = { ready, signIn, signOut, signUp, signInEmail, resetPassword, sendVerification,
+// saveProfile, isAdmin, listProfiles } when firebase-config.js holds a config.
 // The app talks to it through the same small interface it uses inside Claude:
 //   db.doc(path).collection(kind).get() / .doc(id).set(obj) / .doc(id).delete() / .onSnapshot(cb)
 // Each record is stored as one JSON string field, so nested arrays and empty values never trouble Firestore.
@@ -61,8 +62,19 @@
       stop = auth.onAuthStateChanged(function (u) { if (done) return; done = true; clearTimeout(t); if (stop) stop(); resolve(u); });
     });
   }).then(function (u) {
-    return u ? { db: wrap(), user: { uid: u.uid, name: u.displayName || '', email: u.email || '' } } : null;
+    if (!u) return null;
+    // an e-mail account that was just verified in another tab: refresh the flag (quickly, never blocks the start)
+    var fresh = u.emailVerified || providerOf(u) !== 'password' ? Promise.resolve()
+      : Promise.race([u.reload().catch(function () {}), new Promise(function (r) { setTimeout(r, 2500); })]);
+    return fresh.then(function () { return { db: wrap(), user: info(auth.currentUser || u) }; });
   }).catch(function (e) { console.warn('EduScan cloud unavailable', e); return null; });
+
+  function providerOf(u) { var p = u && u.providerData; return (p && p.length && p[0] && p[0].providerId) || 'password'; }
+  function info(u) {
+    return { uid: u.uid, name: u.displayName || '', email: u.email || '', provider: providerOf(u), verified: !!u.emailVerified,
+      created: (u.metadata && Date.parse(u.metadata.creationTime)) || 0 };
+  }
+  function withSdk(fn) { return auth ? Promise.resolve().then(fn) : sdk.then(fn); }
 
   function popup() {
     return auth.signInWithPopup(provider).catch(function (e) {
@@ -74,6 +86,39 @@
     ready: ready,
     // open the Google window straight from the tap when the SDK is already loaded (popup blockers)
     signIn: function () { return auth ? popup() : sdk.then(popup); },
-    signOut: function () { return sdk.then(function () { return auth.signOut(); }); }
+    signOut: function () { return sdk.then(function () { return auth.signOut(); }); },
+    // e-mail and password: new account (with display name and a verification e-mail), sign-in, reset link
+    signUp: function (email, pass, name) {
+      return withSdk(function () {
+        return auth.createUserWithEmailAndPassword(email, pass).then(function (c) {
+          var u = c.user;
+          return u.updateProfile({ displayName: name || '' }).catch(function () {})
+            .then(function () { return u.sendEmailVerification().catch(function () {}); });
+        });
+      });
+    },
+    signInEmail: function (email, pass) { return withSdk(function () { return auth.signInWithEmailAndPassword(email, pass); }); },
+    resetPassword: function (email) { return withSdk(function () { return auth.sendPasswordResetEmail(email); }); },
+    sendVerification: function () {
+      return withSdk(function () { var u = auth.currentUser; if (!u) throw { code: 'auth/no-current-user' }; return u.sendEmailVerification(); });
+    },
+    // profiles/{uid}: name, e-mail, school, dates and counts that the administrator sees (never students' data)
+    saveProfile: function (data) {
+      return withSdk(function () { var u = auth.currentUser; if (!u) return null; return settle(fs.collection('profiles').doc(u.uid).set(data, { merge: true })); });
+    },
+    isAdmin: function () {
+      return withSdk(function () {
+        var u = auth.currentUser; if (!u) return false;
+        return fs.collection('admins').doc(u.uid).get().then(function (d) { return d.exists; }).catch(function () { return false; });
+      });
+    },
+    listProfiles: function () {
+      return withSdk(function () {
+        return fs.collection('profiles').get({ source: 'server' }).catch(function (e) {
+          if (e && e.code === 'permission-denied') throw e;
+          return fs.collection('profiles').get();
+        }).then(function (s) { return s.docs.map(function (d) { var o = d.data() || {}; o.uid = d.id; return o; }); });
+      });
+    }
   };
 })();

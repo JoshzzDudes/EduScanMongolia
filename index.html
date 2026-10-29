@@ -22,7 +22,7 @@ img { max-width: 100%; }
 </style>
 <!-- accounts + sync: must run before the app script, which asks window.EDU_CLOUD at start -->
 <script src="firebase-config.js?v=47877650"></script>
-<script src="cloud.js?v=ace02be1"></script>
+<script src="cloud.js?v=8e703c2c"></script>
 <title>EduScan Mongolia</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Caveat:wght@500&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -133,7 +133,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.link { background: none; border: 0; padding: 4px 0; color: var(--primary); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-input[type=text], input[type=number], input[type=date], input[type=search], select, textarea { background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+input[type=text], input[type=number], input[type=date], input[type=search], input[type=email], input[type=password], select, textarea { background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
 textarea { resize: vertical; min-height: 60px; width: 100%; box-sizing: border-box; }
 label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 500; min-width: 0; }
 label.field > input, label.field > select, label.field > textarea { color: var(--ink); font-size: 14.5px; }
@@ -234,6 +234,17 @@ td.num, th.num { text-align: right; }
   h1 { font-size: 21px; }
 }
 @media (prefers-reduced-motion: reduce) { .side { transition: none; } }
+.cogrid { display: grid; }
+.cogrow { display: grid; grid-template-columns: minmax(170px, 1.3fr) minmax(120px, 1fr) 74px; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.cogrow:first-child { border-top: 0; }
+.cogname { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; }
+.cogverbs { flex-basis: 100%; }
+.cogsides { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+@media (max-width: 600px) { .cogrow { grid-template-columns: 1fr 74px; } .cogname { grid-column: 1 / -1; } }
+.authbox { max-width: 460px; display: flex; flex-direction: column; gap: 12px; }
+.btn.wide { width: 100%; justify-content: center; }
+.ordiv { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.ordiv::before, .ordiv::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 </style>
 <style>
 /* ===== Colorful theme layer: visuals only, no layout or content changes ===== */
@@ -355,7 +366,7 @@ h1 { background: linear-gradient(90deg, var(--ink) 0%, var(--a2i) 100%); -webkit
 .btn.link { color: var(--a2i); }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 :focus-visible { outline-color: var(--a2); }
-input[type=text]:focus, input[type=number]:focus, input[type=date]:focus, input[type=search]:focus, select:focus, textarea:focus { border-color: var(--a2); box-shadow: 0 0 0 3px var(--a2s); outline: none; }
+input[type=text]:focus, input[type=number]:focus, input[type=date]:focus, input[type=search]:focus, input[type=email]:focus, input[type=password]:focus, select:focus, textarea:focus { border-color: var(--a2); box-shadow: 0 0 0 3px var(--a2s); outline: none; }
 
 /* tabs */
 .tabs button.on { color: var(--a2i); border-bottom-color: var(--a2); border-image: var(--grad) 1; }
@@ -630,7 +641,7 @@ async function initStore() {
     Cap.cloudAvail = true;
     try {
       const c = await window.EDU_CLOUD.ready;
-      if (c?.user) { db = c.db; Object.assign(Cap, { db, uid: c.user.uid, name: c.user.name || '', email: c.user.email || '', cloud: true }); }
+      if (c?.user) { db = c.db; Object.assign(Cap, { db, uid: c.user.uid, name: c.user.name || '', email: c.user.email || '', provider: c.user.provider || '', verified: !!c.user.verified, created: c.user.created || 0, cloud: true }); }
     } catch {}
   }
   if (db && Cap.uid) {
@@ -644,7 +655,7 @@ async function initStore() {
       KINDS.forEach(k => base.collection(k).onSnapshot(snap => {
         const docs = snap.docs.map(d => clone(d.data()));
         if (k === 'settings' && !docs.length) return;
-        S[k] = docs; liveRefresh();
+        S[k] = docs; liveRefresh(); profileSoon();
       }, () => {}));
       return;
     } catch { base = null; Cap.cloud = false; }
@@ -661,6 +672,7 @@ function put(kind, obj) {
   obj.updatedAt = now(); if (!obj.createdAt) obj.createdAt = obj.updatedAt;
   const list = S[kind]; const i = list.findIndex(o => o.id === obj.id);
   if (i < 0) list.push(obj); else list[i] = obj;
+  profileSoon();
   if (Cap.mode !== 'db') { saveLocal(); return Promise.resolve(true); }
   const k = kind + '/' + obj.id;
   chains[k] = (chains[k] || Promise.resolve()).then(() => base.collection(kind).doc(obj.id).set(clone(obj)).then(() => true))
@@ -676,7 +688,7 @@ function del(kind, id) {
 }
 function saveErr(e) {
   return ({ quota_exceeded: 'Хадгалах багтаамж дүүрсэн байна. Хуучин өгөгдлөө устгана уу.', invalid_argument: 'Энэ хуудсанд өгөгдөл хадгалах эрх танд алга.', resource_exhausted: 'Хэт олон хүсэлт илгээлээ. Түр хүлээгээд дахин оролдоно уу.', revoked: 'Хандах эрх цуцлагдсан байна.',
-    'permission-denied': 'Өгөгдлийн сангийн дүрэм (Firestore Rules) хадгалахыг хориглож байна. Дүрмээ шалгана уу.', unauthenticated: 'Google бүртгэлээрээ дахин нэвтэрнэ үү.' })[e?.code]
+    'permission-denied': 'Өгөгдлийн сангийн дүрэм (Firestore Rules) хадгалахыг хориглож байна. Дүрмээ шалгана уу.', unauthenticated: 'Бүртгэлээрээ дахин нэвтэрнэ үү.' })[e?.code]
     || 'Хадгалж чадсангүй. Интернэт холболтоо шалгаад дахин оролдоно уу.';
 }
 // re-render after a sync, but never under the teacher's hands (open form, editor, scanner, focused field)
@@ -707,8 +719,9 @@ function cloudErr(e) {
     'auth/cancelled-popup-request': 'Нэвтрэх цонхыг хаасан байна. Дахин оролдоно уу.',
     'auth/popup-blocked': 'Хөтөч нэвтрэх цонхыг хаасан байна. Попап цонхыг зөвшөөрөөд дахин оролдоно уу.',
     'auth/unauthorized-domain': 'Firebase-ийн Authentication → Settings → Authorized domains хэсэгт энэ хаягийг (' + location.hostname + ') нэмээгүй байна.',
-    'auth/operation-not-allowed': 'Firebase-ийн Authentication хэсэгт Google нэвтрэлтийг асаагаагүй байна.',
+    'auth/operation-not-allowed': 'Энэ нэвтрэх аргыг Firebase-ийн Authentication хэсэгт идэвхжүүлээгүй байна.',
     'auth/network-request-failed': 'Интернэт холболтоо шалгаад дахин оролдоно уу.',
+    ...AUTH_ERR,
   })[e?.code] || 'Нэвтэрч чадсангүй' + (e?.code ? ' (' + e.code + ')' : '') + '.';
 }
 function saveLocal() {
@@ -893,6 +906,8 @@ function analyze(ex, f = {}) {
       sem = Math.sqrt(vt * n / (n - 1)) * Math.sqrt(Math.max(0, 1 - alpha));
     }
   }
+  const cog = cogAnalyze(ex, recs);
+  if (cog) { const per = cogItemMap(ex); items.forEach(it => { it.cog = per[it.i] || ''; }); written.forEach((w, i) => { w.cog = cogLv(ex, ex.written[i].cog) ? ex.written[i].cog : ''; }); }
   const bins = Array(10).fill(0); recs.forEach(r => bins[Math.min(9, Math.floor(r.sc.pct / 10))]++);
   const grades = settings().grades.map(([g]) => [g, recs.filter(r => r.grade === g).length]);
   const byGroup = (keyFn, label) => {
@@ -901,9 +916,223 @@ function analyze(ex, f = {}) {
   };
   const classes = byGroup(r => r.cls, id => id ? className(id) : 'Ангигүй');
   const versions = multiV ? byGroup(r => r.at.version || V0(ex), v => v + ' хувилбар') : [];
-  return { ex, f, parts, recs, n, ...sum, G, items, written, alpha, sem, bins, grades, classes, versions, maxPts: recs[0]?.sc.max ?? 0, multiV };
+  return { ex, f, parts, recs, n, ...sum, G, items, written, alpha, sem, bins, grades, classes, versions, maxPts: recs[0]?.sc.max ?? 0, multiV, cog };
 }
 const alphaLabel = a => a == null ? '' : a >= 0.8 ? 'өндөр' : a >= 0.7 ? 'хангалттай' : a >= 0.5 ? 'дунд' : 'бага';
+
+// =============== cognitive level of each task (Bloom's revised taxonomy; more frameworks can be added to COG_FW) ===============
+const COG_FW = {
+  bloom: { name: 'Блүүмийн шинэчилсэн таксономи', en: "Bloom's revised taxonomy", levels: [
+    { k: 'remember', mn: 'Сэргээн санах', en: 'Remember', hi: false, verbs: 'нэрлэх, тодорхойлох, жагсаах, томьёо бичих',
+      fix: 'Түлхүүр нэр томьёо, тодорхойлолт, томьёог хичээлийн эхэнд богино сорил, флаш карт, «санаж бич» дасгалаар тогтмол сэргээн сануулна.' },
+    { k: 'understand', mn: 'Ойлгох', en: 'Understand', hi: false, verbs: 'тайлбарлах, ангилах, жишээ гаргах, харьцуулах',
+      fix: 'Ойлголтыг өөрийн үгээр тайлбарлуулах, жишээ ба жишээ бусыг ялгуулах, ойлголтын зураглал (concept map) хийлгэх дасгал хийлгэнэ.' },
+    { k: 'apply', mn: 'Хэрэглэх', en: 'Apply', hi: false, verbs: 'бодох, тооцоолох, ашиглах, гүйцэтгэх',
+      fix: 'Бодлогын алхмыг жишээгээр үзүүлээд, дэмжлэгийг аажмаар багасгасан дасгал (жишээ бодлого → хамтдаа → бие даан), өөр нөхцөлтэй бодлогоор бататгана.' },
+    { k: 'analyze', mn: 'Задлан шинжлэх', en: 'Analyse', hi: true, verbs: 'ялгах, задлах, холбоо хамаарал тогтоох, өгөгдөл тайлбарлах',
+      fix: 'Өгөгдөл, график, хүснэгт тайлбарлах, харьцуулах, шалтгаан-үр дагаврыг тогтоох даалгавар өгч, «яагаад?», «юугаараа ялгаатай вэ?» гэсэн асуултаар сэтгэлгээг чиглүүлнэ.' },
+    { k: 'evaluate', mn: 'Үнэлэх', en: 'Evaluate', hi: true, verbs: 'дүгнэх, үндэслэх, шүүмжлэх, сонголт хийх',
+      fix: 'Хоёр шийдлийг шалгуураар харьцуулж сонгох, бусдын хариултыг үнэлэх, дүгнэлтээ нотолгоогоор батлах дадлага хийлгэнэ.' },
+    { k: 'create', mn: 'Бүтээх', en: 'Create', hi: true, verbs: 'төлөвлөх, зохиох, загвар гаргах, туршилт зохион байгуулах',
+      fix: 'Туршилт төлөвлөх, загвар, бүтээл зохиох даалгаврыг алхамчилсан шалгуур (rubric), жишээ бүтээлтэй хамт өгнө.' },
+  ] },
+};
+const LOTS_TXT = 'доод эрэмбийн (сэргээн санах, ойлгох, хэрэглэх)', HOTS_TXT = 'дээд эрэмбийн (задлан шинжлэх, үнэлэх, бүтээх)';
+const cogFw = ex => COG_FW[ex?.cog?.fw] || COG_FW.bloom;
+const cogLv = (ex, k) => cogFw(ex).levels.find(l => l.k === k);
+// question numbers (0-based) -> "1-5, 9"
+function compressRange(list) {
+  const a = [...new Set(list)].sort((x, y) => x - y), out = [];
+  for (let i = 0; i < a.length; i++) { let j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++; out.push(j > i ? `${a[i] + 1}-${a[j] + 1}` : `${a[i] + 1}`); i = j; }
+  return out.join(', ');
+}
+// level of every question in the draft/exam ('' when not marked); the first level that lists a question wins
+function cogItemMap(d) {
+  const per = Array(d.count).fill(''), used = new Set();
+  cogFw(d).levels.forEach(l => parseRange(d.cog?.ranges?.[l.k], d.count).forEach(i => { if (!used.has(i)) { used.add(i); per[i] = l.k; } }));
+  return per;
+}
+function cogParts(ex) {
+  const per = cogItemMap(ex), k0 = keyOf(ex, V0(ex));
+  const levels = cogFw(ex).levels.map(l => ({ ...l, items: per.map((v, i) => v === l.k ? i : -1).filter(i => i >= 0), written: (ex.written || []).map((w, i) => w.cog === l.k ? i : -1).filter(i => i >= 0) }))
+    .filter(l => l.items.length || l.written.length);
+  levels.forEach(l => { l.max = l.items.reduce((a, i) => a + (k0[i] ? qPts(ex, i) : 0), 0) + l.written.reduce((a, w) => a + (+ex.written[w].max || 0), 0); l.n = l.items.length + l.written.length; });
+  return { levels, unassigned: per.filter(v => !v).length, unassignedW: (ex.written || []).filter(w => !cogLv(ex, w.cog)).length };
+}
+function groupScore(ex, rec, g) {
+  let e = 0, m = 0, has = false;
+  g.items.forEach(i => { const it = rec.items[i]; if (!it) return; m += it.pts; has = true; if (it.ok) e += it.pts; });
+  g.written.forEach(w => { m += +ex.written[w].max || 0; if (rec.wr[w] != null) { e += rec.wr[w]; has = true; } });
+  return { e, m, pct: m && has ? e / m * 100 : null };
+}
+const cogAgg = (recs, get) => { let e = 0, m = 0; recs.forEach(r => { const s = get(r); if (s && s.pct != null) { e += s.e; m += s.m; } }); return m ? e / m * 100 : null; };
+function cogAnalyze(ex, recs) {
+  const C = cogParts(ex); if (!C.levels.length) return null;
+  const pick = hi => ({ items: C.levels.filter(l => l.hi === hi).flatMap(l => l.items), written: C.levels.filter(l => l.hi === hi).flatMap(l => l.written) });
+  const lo = pick(false), hi = pick(true);
+  recs.forEach(r => { r.cg = C.levels.map(l => groupScore(ex, r, l)); r.lo = groupScore(ex, r, lo); r.hi = groupScore(ex, r, hi); });
+  const total = C.levels.reduce((a, l) => a + l.max, 0), loMax = C.levels.filter(l => !l.hi).reduce((a, l) => a + l.max, 0);
+  C.levels.forEach((l, j) => { l.pct = cogAgg(recs, r => r.cg[j]); l.share = total ? l.max / total * 100 : 0; });
+  const side = (g, max) => ({ n: g.items.length + g.written.length, max, share: total ? max / total * 100 : 0, pct: g.items.length + g.written.length ? cogAgg(recs, r => r[g === lo ? 'lo' : 'hi']) : null });
+  return { fw: cogFw(ex), levels: C.levels, unassigned: C.unassigned, unassignedW: C.unassignedW, total, lo: side(lo, loMax), hi: side(hi, total - loMax) };
+}
+const cogQs = l => [l.items.length ? `${compressRange(l.items)}-р асуулт` : '', l.written.length ? `${l.written.map(w => w + 1).join(', ')}-р задгай` : ''].filter(Boolean).join(', ');
+
+// ---- editor (answer key tab) ----
+function cogCounts(d) { const per = cogItemMap(d), c = cogFw(d).levels.map(l => per.filter(v => v === l.k).length); c.free = per.filter(v => !v).length; return c; }
+const cogFreeText = free => free > 0 ? `${free} асуулт ангилагдаагүй байна.` : 'Бүх сонгох асуулт ангилагдсан.';
+function cogCard(d) {
+  const fw = cogFw(d), cn = cogCounts(d), w = d.written || [], m = UI.cogMsg;
+  const fwSel = Object.keys(COG_FW).length > 1 ? `<label class="field" style="max-width:360px">Ангилал<select data-cogfw>${Object.entries(COG_FW).map(([k, f]) => opt(k, f.name, d.cog?.fw || 'bloom')).join('')}</select></label>` : '';
+  const canAI = !!Cap.sample, busy = UI.cogBusy;
+  return `<div class="card"><div class="spread"><h2>Танин мэдэхүйн түвшин</h2>
+      ${canAI ? `<div class="row">${Cap.canImages ? `<button class="btn" data-act="cogAI" ${busy ? 'disabled' : ''}>${busy ? '<span class="busy"></span>Ангилж байна' : ic('sparkles') + 'Материалын зургаар AI-аар ангилах'}</button>` : ''}
+        ${w.some(t => (t.prompt || '').trim()) ? `<button class="btn" data-act="cogAIw" ${busy ? 'disabled' : ''}>${ic('sparkles')}Задгай даалгаврыг AI-аар</button>` : ''}</div>` : ''}</div>
+    <p class="small muted">${esc(fw.name)} (${esc(fw.en)}). Асуулт бүр сурагчаас ямар түвшний сэтгэлгээ шаардахыг тэмдэглэвэл тайланд түвшин тус бүрийн гүйцэтгэл, доод ба дээд эрэмбийн сэтгэлгээний харьцаа, түүнд тулгуурласан зөвлөмж гарна. Асуултын дугаарыг «1-5, 9» гэх мэтээр бичнэ. Заавал биш.${canAI && Cap.canImages ? ' Шалгалтын материалын (асуултын хуудасны) зургийг сонговол Claude асуулт бүрийн түвшинг санал болгоно, та шалгаж засна.' : ''}</p>
+    ${fwSel}
+    <div class="cogrid">${fw.levels.map((l, j) => `<label class="cogrow"><span class="cogname"><b>${esc(l.mn)}</b> <span class="small muted">${esc(l.en)}${l.hi ? ' · дээд эрэмбэ' : ''}</span><span class="small muted cogverbs">${esc(l.verbs)}</span></span>
+      <input type="text" data-cg="${l.k}" value="${esc(d.cog?.ranges?.[l.k] || '')}" placeholder="ж: 1-5, 9" aria-label="${esc(l.mn)} түвшний асуултууд"><span class="small muted" data-cgc="${l.k}">${cn[j]} асуулт</span></label>`).join('')}</div>
+    ${w.length ? `<div class="stack" style="gap:6px;margin-top:10px"><span class="eyebrow">Задгай даалгавар</span>${w.map((t, i) => `<label class="row"><span style="min-width:110px">Даалгавар ${i + 1}</span><select data-cgw="${i}" style="flex:1 1 220px" aria-label="${i + 1}-р задгай даалгаврын түвшин">${opt('', '— Түвшин сонгох —', t.cog || '')}${fw.levels.map(l => opt(l.k, `${l.mn} (${l.en})`, t.cog || '')).join('')}</select></label>`).join('')}</div>` : ''}
+    <p class="small muted" data-cgc="free">${cogFreeText(cn.free)}</p>
+    ${m ? `<p class="notice ${m.bad ? 'bad' : m.busy ? '' : 'ok'}">${m.busy ? '<span class="busy"></span>' : ic(m.bad ? 'triangle-alert' : 'sparkles')}<span>${esc(m.text)}</span></p>` : ''}
+    <input type="file" id="cogFiles" accept="image/*" multiple hidden></div>`;
+}
+function cogSetRange(d, k, v) {
+  d.cog = { fw: d.cog?.fw || 'bloom', ranges: { ...(d.cog?.ranges || {}), [k]: v } };
+  const cn = cogCounts(d); cogFw(d).levels.forEach((l, j) => { const el = $(`[data-cgc="${l.k}"]`); if (el) el.textContent = cn[j] + ' асуулт'; });
+  const fr = $('[data-cgc="free"]'); if (fr) fr.textContent = cogFreeText(cn.free);
+}
+async function aiCog(files) {
+  const d = UI.draft?.data; if (!d || !Cap.sample || UI.cogBusy) return;
+  const fw = cogFw(d), imgs = [...(files || [])].slice(0, Math.max(1, Cap.maxImages || 1));
+  if ((files || []).length > imgs.length) toast(`Эхний ${imgs.length} зургийг илгээнэ.`);
+  const written = (d.written || []).map((w, i) => ({ n: i + 1, task: w.prompt || '' })).filter(x => x.task.trim());
+  if (!imgs.length && !written.length) return;
+  UI.cogBusy = true; UI.cogMsg = { busy: true, text: imgs.length ? 'Claude шалгалтын материалыг уншиж, асуулт бүрийн түвшинг тодорхойлж байна…' : 'Claude задгай даалгаврын түвшинг тодорхойлж байна…' }; render();
+  const levelsTxt = fw.levels.map(l => `${l.k} = ${l.mn} / ${l.en} (${l.verbs})`).join('; ');
+  const prompt = `You help a Mongolian school teacher classify exam tasks by cognitive level using ${fw.en}. Levels: ${levelsTxt}.
+${imgs.length ? `The images show the exam paper${d.subject ? ` (subject: ${d.subject})` : ''}. Part I has ${d.count} multiple-choice questions numbered 1 to ${d.count}; classify each one you can read and skip the ones you cannot read.` : `Classify only the written tasks below${d.subject ? ` (subject: ${d.subject})` : ''}.`}
+${written.length ? `Written tasks (part II), texts in JSON: ${JSON.stringify(written)}` : ''}
+Choose the single level that matches the mental process the student must use to answer, not the topic or how hard it is: recalling a fact, term or formula is remember; explaining, classifying, comparing or interpreting is understand; using a known procedure or formula in a familiar task is apply; breaking down data, graphs, experiments or relationships is analyze; judging or justifying with criteria or evidence is evaluate; designing, planning or producing something new is create.
+Reply with only JSON: {"items":[{"n":1,"level":"remember"}],"written":[{"n":1,"level":"apply"}],"note":"one short sentence in Mongolian about the balance of levels"}`;
+  try {
+    const out = await Cap.sample.json(prompt, imgs.length ? { images: imgs } : {});
+    if (UI.draft?.data !== d) { UI.cogBusy = false; return; }
+    const per = cogItemMap(d); let k = 0, kw = 0;
+    (out?.items || []).forEach(x => { const i = (+x.n || 0) - 1; if (i >= 0 && i < d.count && cogLv(d, x.level)) { per[i] = x.level; k++; } });
+    (out?.written || []).forEach(x => { const i = (+x.n || 0) - 1; if (d.written?.[i] && cogLv(d, x.level)) { d.written[i].cog = x.level; kw++; } });
+    const ranges = {}; fw.levels.forEach(l => { const r = compressRange(per.map((v, i) => v === l.k ? i : -1).filter(i => i >= 0)); if (r) ranges[l.k] = r; });
+    d.cog = { fw: d.cog?.fw || 'bloom', ranges }; markDirty();
+    UI.cogMsg = k || kw ? { text: `Claude ${[k ? k + ' асуулт' : '', kw ? kw + ' задгай даалгавар' : ''].filter(Boolean).join(', ')} ангиллаа.${out?.note ? ' ' + String(out.note) : ''} Шалгаж, шаардлагатай бол засаад «Хадгалах» дарна уу.${aiCostNote()}` }
+      : { bad: true, text: 'Claude асуулт уншиж чадсангүй. Илүү тод, бүтэн зураг сонгоно уу.' };
+  } catch (e) { UI.cogMsg = { bad: true, text: aiErr(e) }; }
+  UI.cogBusy = false; render();
+}
+
+// ---- report: overview card, advice, comments ----
+function cogBlock(R, showClasses) {
+  const ex = R.ex, C = R.cog, st = settings();
+  if (!C) return `<div class="card"><h2>Танин мэдэхүйн түвшин</h2><p class="small muted">${ic('info')} Асуултуудыг Блүүмийн шинэчилсэн таксономиор (сэргээн санах, ойлгох, хэрэглэх, задлан шинжлэх, үнэлэх, бүтээх) ангилбал түвшин тус бүрийн гүйцэтгэл, доод ба дээд эрэмбийн сэтгэлгээний харьцаа, түүнд тулгуурласан зөвлөмж гарна. <button class="btn link" data-act="openExam" data-id="${ex.id}" data-tab="key">Түвшин тохируулах →</button></p></div>`;
+  const bar = v => `<div class="pbar"><i class="${toneOf(v)}" style="width:${Math.max(0, Math.min(100, v || 0))}%"></i><em style="left:${thrSupport()}%"></em><em class="s" style="left:${st.thrSuccess}%"></em></div>`;
+  const row = (name, sub, v) => { const tone = toneOf(v); return `<div class="prow"><div class="pname">${name}<span class="small muted">${sub}</span></div>${bar(v)}<span class="mono pv">${pctTxt(v)}</span>${tone ? `<span class="pill ${tone}">${PART_STATE[tone]}</span>` : '<span></span>'}</div>`; };
+  const rows = C.levels.map(l => row(`<b>${esc(l.mn)}</b> <span class="small muted">${esc(l.en)}</span>`, `${cogQs(l)} · онооны ${fmt(l.share)}%`, l.pct)).join('');
+  const sides = [C.lo.n ? row('<b>Доод эрэмбэ</b> <span class="small muted">LOTS</span>', `сэргээн санах, ойлгох, хэрэглэх · онооны ${fmt(C.lo.share)}%`, C.lo.pct) : '',
+    C.hi.n ? row('<b>Дээд эрэмбэ</b> <span class="small muted">HOTS</span>', `задлан шинжлэх, үнэлэх, бүтээх · онооны ${fmt(C.hi.share)}%`, C.hi.pct) : ''].join('');
+  const cls = showClasses && R.classes.length > 1 ? R.classes.map(c => ({ name: c.name, recs: R.recs.filter(r => r.cls === c.id) })) : [];
+  const heat = cls.length ? `<div class="tablebox"><table><thead><tr><th>Түвшин</th>${cls.map(c => `<th class="num">${esc(c.name)}</th>`).join('')}</tr></thead><tbody>
+    ${C.levels.map((l, j) => `<tr><td>${esc(l.mn)}</td>${cls.map(c => { const v = cogAgg(c.recs, r => r.cg[j]); return `<td class="num heat ${toneOf(v)}">${pctTxt(v)}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>` : '';
+  const miss = [C.unassigned ? `${C.unassigned} сонгох асуулт` : '', C.unassignedW ? `${C.unassignedW} задгай даалгавар` : ''].filter(Boolean).join(', ');
+  return `<div class="card"><div class="spread"><h2>Танин мэдэхүйн түвшин</h2><span class="small muted">${esc(C.fw.name)}</span></div>
+    <div class="parts">${rows}</div>${sides ? `<div class="parts cogsides">${sides}</div>` : ''}${heat}
+    ${miss ? `<p class="small muted">${ic('info')} ${miss} ангилагдаагүй тул энд тооцогдоогүй. <button class="btn link" data-act="openExam" data-id="${ex.id}" data-tab="key">Тохируулах →</button></p>` : ''}</div>`;
+}
+function cogAdvice(R) {
+  const C = R.cog; if (!C) return null;
+  const st = settings(), items = [];
+  if (C.lo.n && C.hi.n && C.lo.pct != null && C.hi.pct != null) {
+    const gap = C.lo.pct - C.hi.pct, head = `Доод эрэмбийн даалгаврын гүйцэтгэл <b>${pctTxt(C.lo.pct)}</b>, дээд эрэмбийнх <b>${pctTxt(C.hi.pct)}</b>.`;
+    items.push(gap >= 15 ? `${head} Сурагчид мэдлэгээ санаж, хэрэглэж чадаж байгаа ч задлан шинжлэх, үнэлэх, бүтээх даалгавар дээр хүндэрч байна. Хичээл бүрт «яагаад?», «хэрхэн?», «хэрэв … бол?» гэсэн асуулт, өгөгдөл тайлбарлах, үндэслэл бичих даалгаврыг тогтмол оруулна.`
+      : gap <= -15 ? `${head} Дээд эрэмбийн даалгаврыг харьцангуй сайн гүйцэтгэсэн ч суурь мэдлэгийн (нэр томьёо, тодорхойлолт, томьёо) алдаа их байна. Суурь ойлголтыг сэргээн санах дасгалаар бататгаж, алдааны шалтгааныг сурагчтай хамт тодруулна.`
+      : `${head} Түвшин хоорондын зөрүү бага, гүйцэтгэл харьцангуй тэнцвэртэй.`);
+  }
+  const below = j => R.recs.filter(r => r.cg?.[j]?.pct != null && r.cg[j].pct < thrSupport());
+  C.levels.map((l, j) => ({ l, j })).filter(x => x.l.pct != null && x.l.pct < st.thrSuccess).sort((a, b) => a.l.pct - b.l.pct).forEach(({ l, j }) => {
+    const weak = l.pct < thrSupport(), b = below(j);
+    items.push(`<b>${esc(l.mn)}</b> <span class="muted">(${esc(l.en)})</span> · ${pctTxt(l.pct)} · ${cogQs(l)}. ${weak ? `Нэн тэргүүнд анхаарах түвшин: ${b.length} сурагч ${thrSupport()}%-иас доош.` : 'Бататгах шаардлагатай.'} ${esc(l.fix)}${weak && b.length ? `<br><span class="small muted">Дэмжлэг хэрэгтэй: ${namesTxt(b)}</span>` : ''}`);
+  });
+  const sup = R.recs.filter(r => r.lv === 'sup'), ext = R.recs.filter(r => r.lv === 'ext'), g = [];
+  if (sup.length && C.lo.n) { const v = cogAgg(sup, r => r.lo); if (v != null) g.push(`дэмжлэг хэрэгтэй ${sup.length} сурагчийн доод эрэмбийн гүйцэтгэл ${pctTxt(v)}: эхлээд сэргээн санах, ойлгох түвшинд бататгаж, дараа нь хэрэглэх даалгавар өгнө`); }
+  if (ext.length && C.hi.n) { const v = cogAgg(ext, r => r.hi); if (v != null) g.push(`ахисан ${ext.length} сурагчийн дээд эрэмбийн гүйцэтгэл ${pctTxt(v)}: ${v >= st.thrSuccess ? 'бүтээх, үнэлэх түвшний өргөтгөсөн даалгавраар ахиулна' : 'задлан шинжлэх, үнэлэх даалгаврыг тогтмол өгч дадлагажуулна'}`); }
+  if (g.length) items.push(`Бүлгээр: ${g.join('; ')}.`);
+  const bal = [];
+  if (!C.hi.n) bal.push(`Шалгалтад ${HOTS_TXT} даалгавар алга. Ахисан түвшний сурагчдыг ялгах, гүнзгий ойлголтыг шалгахын тулд дараагийн шалгалтад 2–3 ийм даалгавар нэмэхийг зөвлөж байна.`);
+  else if (C.hi.share < 20) bal.push(`Онооны ${fmt(C.lo.share)}% нь ${LOTS_TXT} даалгавар, дээд эрэмбийнх ердөө ${fmt(C.hi.share)}%. Дээд эрэмбийн даалгаврыг нэмбэл ахисан түвшний сурагчдыг илүү сайн ялгана.`);
+  else if (!C.lo.n) bal.push(`Шалгалтад ${LOTS_TXT} даалгавар алга. Суурь мэдлэгийг шалгах хэдэн асуулт нэмбэл сул сурагчдын дутагдлыг илрүүлэхэд тустай.`);
+  const one = C.levels.filter(l => l.n === 1);
+  if (one.length) bal.push(`${one.map(l => `«${l.mn}»`).join(', ')} түвшинд ганц даалгавар тул энэ түвшний дүгнэлтийг болгоомжтой хийнэ.`);
+  if (C.unassigned || C.unassignedW) bal.push(`${[C.unassigned ? C.unassigned + ' сонгох асуулт' : '', C.unassignedW ? C.unassignedW + ' задгай даалгавар' : ''].filter(Boolean).join(', ')} ангилагдаагүй тул дүгнэлтэд ороогүй.`);
+  if (bal.length) items.push('Шалгалтын бүтэц: ' + bal.join(' '));
+  if (!items.length) return null;
+  return { icon: 'brain', tone: C.levels.some(l => l.pct != null && l.pct < thrSupport()) ? 'warn' : '', title: `Танин мэдэхүйн түвшин (${C.fw.name})`, items };
+}
+// one short clause for a student's note: the strongest and the weakest thinking level, when they clearly differ
+function cogStudentBit(rec, R) {
+  const C = R.cog; if (!C || !rec.cg) return '';
+  const s = C.levels.map((l, j) => ({ l, v: rec.cg[j].pct })).filter(x => x.v != null && x.l.n >= 2);
+  if (s.length < 2) return '';
+  s.sort((a, b) => b.v - a.v);
+  const best = s[0], worst = s[s.length - 1];
+  if (best.v - worst.v >= 20) return `«${best.l.mn}» түвшний даалгавар сайн, «${worst.l.mn}» түвшинд ахих шаардлагатай.`;
+  if (worst.v < thrSupport()) return `«${worst.l.mn}» түвшний даалгаврыг давтах шаардлагатай.`;
+  return '';
+}
+function cogData(R) {
+  const C = R.cog; if (!C) return undefined;
+  return { framework: C.fw.en, levels: C.levels.map(l => ({ level: `${l.mn} (${l.en})`, higherOrder: l.hi, questions: l.items.map(i => i + 1), writtenTasks: l.written.map(w => w + 1), pointSharePct: r1(l.share), meanPct: r1(l.pct) })),
+    lowerOrderPct: r1(C.lo.pct), higherOrderPct: r1(C.hi.pct), higherOrderPointSharePct: r1(C.hi.share), unclassifiedQuestions: C.unassigned };
+}
+
+// ---- Excel sheet ----
+function xCogSheet(wb, ex, R, used) {
+  const C = R.cog, name = xSheetName('Танин мэдэхүй', used);
+  const ws = wb.addWorksheet(name, { views: [{ showGridLines: false }], properties: { tabColor: { argb: 'FF00B050' } }, pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const cls = R.classes.length > 1 ? R.classes : [];
+  const ncol = Math.max(9 + cls.length, 5 + C.levels.length);
+  [26, 14, 12, 22, 12].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  for (let i = 6; i <= ncol; i++) ws.getColumn(i).width = 13;
+  xSet(ws, 1, 1, 'Танин мэдэхүйн түвшин / Cognitive levels', 'title'); ws.getRow(1).height = 22;
+  xSet(ws, 2, 1, `${ex.name} · ${C.fw.name} (${C.fw.en})`, 'sub');
+  let r = 4;
+  const H = ['Түвшин', 'Level', 'Эрэмбэ', 'Асуулт', 'Задгай', 'Оноо', 'Онооны эзлэх %', 'Дундаж %', ...cls.map(c => c.name + ' %'), 'Төлөв'];
+  H.forEach((t, i) => xSet(ws, r, i + 1, t, 'hdr')); ws.getRow(r).height = 32;
+  const h0 = r + 1, pc = v => v == null ? '' : v / 100;
+  const clsPct = get => cls.map(c => pc(cogAgg(R.recs.filter(x => x.cls === c.id), get)));
+  const rows = C.levels.map((l, j) => [l.mn, l.en, l.hi ? 'Дээд' : 'Доод', compressRange(l.items), l.written.map(w => w + 1).join(', '), l.max, l.share / 100, pc(l.pct), ...clsPct(x => x.cg[j]), l.pct == null ? '' : PART_STATE[toneOf(l.pct)]]);
+  if (C.lo.n) rows.push(['Доод эрэмбэ (LOTS)', 'Lower-order', '', '', '', C.lo.max, C.lo.share / 100, pc(C.lo.pct), ...clsPct(x => x.lo), C.lo.pct == null ? '' : PART_STATE[toneOf(C.lo.pct)]]);
+  if (C.hi.n) rows.push(['Дээд эрэмбэ (HOTS)', 'Higher-order', '', '', '', C.hi.max, C.hi.share / 100, pc(C.hi.pct), ...clsPct(x => x.hi), C.hi.pct == null ? '' : PART_STATE[toneOf(C.hi.pct)]]);
+  rows.forEach((row, ri) => {
+    r++;
+    row.forEach((v, i) => xSet(ws, r, i + 1, v, ri >= C.levels.length && i < 3 ? 'lab' : 'calc', { fmt: i >= 6 && i < 8 + cls.length ? '0%' : i === 5 ? '0.##' : undefined, h: i <= 1 || i === 3 ? 'left' : undefined, wrap: i === 3 }));
+    if (String(row[3]).length > 20) ws.getRow(r).height = Math.ceil(String(row[3]).length / 20) * 15 + 2;
+  });
+  ws.addConditionalFormatting(xColorScale(`${xCol(8)}${h0}:${xCol(8 + cls.length)}${r}`));
+  r += 2;
+  const SH = ['Сурагч', 'Код', 'Анги', 'Нийт %', ...C.levels.map(l => l.mn + ' %'), ...(C.lo.n ? ['Доод эрэмбэ %'] : []), ...(C.hi.n ? ['Дээд эрэмбэ %'] : [])];
+  xMerge(ws, r, 1, r, SH.length, 'lab'); ws.getCell(r, 1).value = 'Сурагч бүрийн гүйцэтгэл түвшнээр / Students by level'; r++;
+  SH.forEach((t, i) => xSet(ws, r, i + 1, t, 'hdr')); ws.getRow(r).height = 32;
+  const s0 = r + 1;
+  R.recs.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(x => {
+    r++;
+    [x.name, x.code, x.cls ? className(x.cls) : '', x.sc.pct / 100, ...x.cg.map(g => pc(g.pct)), ...(C.lo.n ? [pc(x.lo.pct)] : []), ...(C.hi.n ? [pc(x.hi.pct)] : [])]
+      .forEach((v, i) => xSet(ws, r, i + 1, v, 'calc', { fmt: i >= 3 ? '0%' : undefined, h: i === 0 ? 'left' : undefined }));
+  });
+  if (r >= s0) ws.addConditionalFormatting(xColorScale(`${xCol(4)}${s0}:${xCol(SH.length)}${r}`));
+  r += 2;
+  [`${C.fw.name}: ${C.fw.levels.map(l => `${l.mn} (${l.en}) — ${l.verbs}`).join('; ')}.`,
+    'Доод эрэмбийн сэтгэлгээ (LOTS): сэргээн санах, ойлгох, хэрэглэх. Дээд эрэмбийн сэтгэлгээ (HOTS): задлан шинжлэх, үнэлэх, бүтээх.',
+    'Түвшнийг EduScan-ийн шалгалтын «Түлхүүр» хэсгийн «Танин мэдэхүйн түвшин» картад асуултын дугаараар тэмдэглэнэ. Онооны эзлэх хувь нь ангилагдсан даалгаврын нийт онооноос тооцогдоно.']
+    .forEach(t => { xMerge(ws, r, 1, r, ncol, 'note'); ws.getCell(r, 1).value = t; ws.getRow(r).height = Math.ceil(t.length / 150) * 15 + 3; r++; });
+}
 
 // =============== answer sheet geometry (mm, A4 portrait) ===============
 const MARKERS = [[14, 14], [196, 14], [196, 283], [14, 283]];
@@ -1889,6 +2118,7 @@ async function exportReport(ex) {
     const sheets = xClassSheets(wb, ex, R, G, used);
     xSummary(wb, ex, R, G, sheets, used);
     xItemSheet(wb, ex, R, used);
+    if (R.cog) xCogSheet(wb, ex, R, used);
     xMatrix(wb, ex, R, used);
     xDistribution(wb, ex, R, G, sheets, used);
     const buf = await wb.xlsx.writeBuffer();
@@ -2016,7 +2246,7 @@ function aiCard() {
       ${c.key ? `<button class="btn danger" data-act="aiForget">${ic('trash-2')}Түлхүүр устгах</button>` : ''}</div>
     ${UI.aiNote ? `<p class="notice ${UI.aiNote.bad ? 'bad' : 'ok'}">${ic(UI.aiNote.bad ? 'triangle-alert' : 'circle-check')}<span>${esc(UI.aiNote.text)}</span></p>` : ''}
     ${u.n ? `<p class="small muted">Энэ төхөөрөмж дээрх зарцуулалт (${new Date(u.since - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}-ээс хойш): ${u.n} хүсэлт · ${u.inTok.toLocaleString('en-US')} оролтын, ${u.outTok.toLocaleString('en-US')} гаралтын токен · ≈ ${fmtUsd(u.usd)}${u.last ? `. Сүүлийн хүсэлт: ≈ ${fmtUsd(u.last.usd)} (${esc(u.last.model)})` : ''}. <button class="btn link sm" data-act="aiUsageReset">Тэглэх</button></p>` : ''}
-    <p class="small muted">${ic('shield-check')} Түлхүүр зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана. Google бүртгэлийн синк, нөөц файл, бусад төхөөрөмж рүү очихгүй, зөвхөн api.anthropic.com руу илгээгдэнэ. Утас, компьютер тус бүр дээр тусад нь оруулна. Нийтийн компьютер дээр хадгалахгүй байхыг зөвлөе.</p>
+    <p class="small muted">${ic('shield-check')} Түлхүүр зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана. бүртгэлийн синк, нөөц файл, бусад төхөөрөмж рүү очихгүй, зөвхөн api.anthropic.com руу илгээгдэнэ. Утас, компьютер тус бүр дээр тусад нь оруулна. Нийтийн компьютер дээр хадгалахгүй байхыг зөвлөе.</p>
     <p class="small muted">Claude руу сурагчийн нэрийг илгээхгүй: задгай даалгаврын хэсгийн зураг, даалгавар, шалгуур, оноо, сурагчийн кодыг илгээнэ. Хуудсыг AI-аар уншуулахад бүтэн зураг очно.</p>
     <p class="small muted">Зардлаа хянахын тулд platform.claude.com дээр EduScan-д зориулсан тусдаа түлхүүр үүсгэж, автоматаар цэнэглэх (auto-reload) тохиргоог унтраалттай байлгаарай.</p></div>`;
 }
@@ -2622,14 +2852,14 @@ const PARENT = { exam: 'exams', class: 'classes', student: 'students' };
 function renderSide() {
   const cur = PARENT[UI.page] || UI.page;
   const counts = { exams: S.exams.filter(x => x.status !== 'archived').length, classes: S.classes.length, students: S.students.filter(s => s.active !== false).length, archive: S.exams.filter(x => x.status === 'archived').length };
-  $('#menu').innerHTML = PAGES.map(([k, l, i]) => `<button class="${cur === k ? 'on' : ''}" data-go="${k}">${ic(i)}<span>${l}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
-  const m = { db: [Cap.cloud ? 'Google бүртгэлд синк хийгдэнэ' : 'Claude бүртгэлд хадгалагдана', 'var(--ok)'], local: ['Зөвхөн энэ төхөөрөмжид', 'var(--warn)'], memory: ['Түр горим: хадгалагдахгүй', 'var(--bad)'] }[Cap.mode];
+  $('#menu').innerHTML = [...PAGES, ...(Cap.admin ? [['admin', 'Бүртгэлүүд', 'shield-check']] : [])].map(([k, l, i]) => `<button class="${cur === k ? 'on' : ''}" data-go="${k}">${ic(i)}<span>${l}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
+  const m = { db: [Cap.cloud ? 'Бүртгэлд синк хийгдэнэ' : 'Claude бүртгэлд хадгалагдана', 'var(--ok)'], local: ['Зөвхөн энэ төхөөрөмжид', 'var(--warn)'], memory: ['Түр горим: хадгалагдахгүй', 'var(--bad)'] }[Cap.mode];
   $('#sideFoot').innerHTML = `<span><span class="dot" style="--st:${m[1]}"></span>${m[0]}</span><span><span class="dot" style="--st:${Cap.sample ? 'var(--ok)' : 'var(--bad)'}"></span>AI үнэлгээ: ${Cap.sample ? (Cap.ai === 'api' ? 'Claude API' : 'Claude') : 'боломжгүй'}</span>`;
   $('#side').classList.toggle('open', UI.sideOpen); $('#scrim').classList.toggle('open', UI.sideOpen);
 }
 function render() {
   const view = $('#view');
-  const fn = { dashboard: pDashboard, exams: pExams, exam: pExam, classes: pClasses, class: pClass, students: pStudents, student: pStudent, sheets: pSheets, grade: pGrade, reports: pReports, archive: pArchive, settings: pSettings }[UI.page] || pDashboard;
+  const fn = { account: pAccount, admin: pAdmin, dashboard: pDashboard, exams: pExams, exam: pExam, classes: pClasses, class: pClass, students: pStudents, student: pStudent, sheets: pSheets, grade: pGrade, reports: pReports, archive: pArchive, settings: pSettings }[UI.page] || pDashboard;
   view.innerHTML = confirmBar() + fn();
   renderSide(); renderTop(); after();
   try { window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } }); } catch {}
@@ -2689,8 +2919,8 @@ function pDashboard() {
   const isNew = !S.exams.length && !S.classes.length;
   return `<div class="spread"><div class="stack" style="gap:2px"><h1>Хянах самбар</h1><p class="muted">${esc(st.school || 'Сайн байна уу')}${Cap.name ? ', ' + esc(Cap.name) : ''}</p></div>
     <div class="row"><button class="btn primary" data-act="newExam">${ic('plus')}Шинэ шалгалт</button><button class="btn" data-go="grade">${ic('scan-line')}Хуудас засах</button><button class="btn" data-go="reports">${ic('chart-column')}Тайлан</button></div></div>
-  ${Cap.mode !== 'db' && Cap.cloudAvail ? `<div class="notice">${ic('cloud')}<div class="stack" style="gap:8px"><span>Google бүртгэлээрээ нэвтэрвэл өгөгдөл үүлэнд хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Хоёр төхөөрөмж дээр хоёуланд нь ижил бүртгэлээр нэвтэрнэ үү.</span>
-    <div class="row"><button class="btn primary" data-act="cloudIn">${ic('log-in')}Google-ээр нэвтрэх</button></div></div></div>`
+  ${Cap.mode !== 'db' && Cap.cloudAvail ? `<div class="notice">${ic('cloud')}<div class="stack" style="gap:8px"><span>Google эсвэл имэйлээр нэвтэрвэл өгөгдөл үүлэнд хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Хоёр төхөөрөмж дээр хоёуланд нь ижил бүртгэлээр нэвтэрнэ үү.</span>
+    <div class="row"><button class="btn primary" data-go="account">${ic('log-in')}Нэвтрэх / Бүртгүүлэх</button></div></div></div>`
   : Cap.mode !== 'db' ? `<div class="notice warn">${ic('triangle-alert')}<span>${Cap.mode === 'local' ? 'Өгөгдөл зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана. Өөр төхөөрөмжөөс харагдахгүй, хөтчийн өгөгдлийг цэвэрлэвэл устна. Тохиргоо хэсгээс нөөц файлаа тогтмол татаж хадгална уу. Claude дахь EduScan-ийн өгөгдлийг «Нөөцөөс сэргээх»-ээр оруулж болно.' : 'Энэ харагдацад өгөгдөл хадгалагдахгүй байна. Хуудсыг хаахад бүх өгөгдөл устна.'}</span></div>` : ''}
   <div class="stats">
     <div class="stat">${ic('file-text')}<span class="eyebrow">Шалгалт</span><b>${active.length}</b></div>
@@ -2832,7 +3062,7 @@ function tabKey(d, ex) {
       ${UI.showPts ? `<input type="number" class="qpts" data-qp="${i}" min="0" step="0.5" placeholder="${d.pointsEach}" value="${esc(d.points?.[i] ?? '')}" aria-label="${i + 1}-р асуултын оноо">` : ''}</div>`).join('')}</div>
     <p class="small muted">Дахин дарвал сонголт арилна. Кирилл А, В, С, Е, Д үсгийг бөөнөөр оруулахад латин A, B, C, E, D болгон хөрвүүлнэ.</p>
   </div>
-  ${topicsCard(d)}`;
+  ${topicsCard(d)}${cogCard(d)}`;
 }
 // topics: named question ranges; the report and the Excel workbook break results down by them
 function topicCounts(d) { const used = new Set(); return (d.topics || []).map(t => { const it = parseRange(t.range, d.count).filter(q => !used.has(q)); it.forEach(q => used.add(q)); return it.length; }).concat(d.count - used.size); }
@@ -2880,6 +3110,10 @@ function normalizeKey(d) {
   d.pointsEach = Math.max(0.5, +d.pointsEach || 1);
   d.penalty = Math.max(0, +d.penalty || 0);
   d.topics = (d.topics || []).map(t => ({ name: String(t?.name || '').trim(), range: String(t?.range || '').trim(), goal: String(t?.goal || '').trim() })).filter(t => t.name || t.range);
+  const cfw = COG_FW[d.cog?.fw] ? d.cog.fw : 'bloom', cr = {};
+  COG_FW[cfw].levels.forEach(l => { const v = String(d.cog?.ranges?.[l.k] || '').trim(); if (v) cr[l.k] = v; });
+  if (Object.keys(cr).length || cfw !== 'bloom') d.cog = { fw: cfw, ranges: cr }; else delete d.cog;
+  (d.written || []).forEach(w => { if (!COG_FW[cfw].levels.some(l => l.k === w.cog)) delete w.cog; });
 }
 function validateDraft(d) {
   if (!String(d.name || '').trim()) return 'Шалгалтын нэрээ оруулна уу.';
@@ -3236,18 +3470,20 @@ function studentComment(rec, R) {
   const scored = parts.map((p, j) => ({ p, j, v: rec.ps[j].pct })).filter(x => x.v != null);
   const weak = scored.filter(x => x.v < thrSupport()).sort((a, b) => a.v - b.v);
   const strong = parts.length > 1 ? scored.filter(x => x.v >= st.thrSuccess && !weak.includes(x)).sort((a, b) => b.v - a.v)[0] : null;
-  const build = (withQ, withStrong) => {
+  const build = (withQ, withStrong, withCog = true) => {
     const bits = [`${Math.round(rec.sc.pct)}% (${LEVELS[rec.lv][0]}).`];
     if (strong && withStrong) bits.push(`«${strong.p.name}» сэдвийг сайн эзэмшсэн.`);
     if (weak.length) bits.push(`${weak.slice(0, 2).map(x => { const w = withQ ? wrongIn(rec, x.p) : []; return `«${x.p.name}»${w.length ? ` (${qList(w, 4)}-р асуулт)` : ''}`; }).join(', ')} сэдвийг давтах шаардлагатай.`);
     else if (parts.length === 1 && withQ) { const w = rec.items.map((it, i) => it && !it.ok ? i + 1 : 0).filter(Boolean); if (w.length) bits.push(`Алдсан асуулт: ${qList(w, 6)}.`); }
+    if (withCog) { const cb = cogStudentBit(rec, R); if (cb) bits.push(cb); }
     if (rec.sc.wPending) bits.push('Задгай даалгаврын оноо дутуу.');
     bits.push(LEVEL_STEP[rec.lv]);
     return bits.join(' ');
   };
   let s = build(true, true);
   if (s.length > NOTE_MAX) s = build(false, true);
-  if (s.length > NOTE_MAX) s = build(false, false);
+  if (s.length > NOTE_MAX) s = build(false, true, false);
+  if (s.length > NOTE_MAX) s = build(false, false, false);
   return s.length > NOTE_MAX ? s.slice(0, NOTE_MAX - 1) + '…' : s;
 }
 const commentOf = (rec, R) => (rec.at.comment || '').trim() || studentComment(rec, R);
@@ -3259,6 +3495,7 @@ function classComment(R, label) {
   if (pp.length > 1) s.push(`Хамгийн сайн эзэмшсэн сэдэв «${pp[pp.length - 1][0].name}» (${pctTxt(pp[pp.length - 1][1])}), хамгийн сул нь «${pp[0][0].name}» (${pctTxt(pp[0][1])}).`);
   const hard = R.items.filter(it => it.p != null && it.p < 0.5).sort((a, b) => a.p - b.p).slice(0, 3);
   if (hard.length) s.push(`Сурагчдын олонх нь ${hard.map(it => it.n).join(', ')}-р асуултад алдсан.`);
+  if (R.cog?.lo.n && R.cog?.hi.n && R.cog.lo.pct != null && R.cog.hi.pct != null) s.push(`Доод эрэмбийн (сэргээн санах, ойлгох, хэрэглэх) даалгаврын гүйцэтгэл ${pctTxt(R.cog.lo.pct)}, дээд эрэмбийнх ${pctTxt(R.cog.hi.pct)}.`);
   const weak = pp.filter(x => x[1] < thrSupport()).map(x => x[0].name);
   s.push(weak.length ? `Дараагийн хичээлүүдэд ${quoteNames(weak)} сэдвийг дахин заах, дэмжлэг хэрэгтэй сурагчидтай тусад нь ажиллахаар төлөвлөж байна.`
     : R.lv.sup ? 'Дэмжлэг хэрэгтэй сурагчидтай тусад нь ажиллаж, гол ойлголтыг бататгана.' : 'Ангийн гүйцэтгэл тогтвортой тул өргөтгөсөн даалгавраар ахиулна.');
@@ -3284,6 +3521,7 @@ function teacherAdvice(R) {
   if (mid.length) out.push({ icon: 'repeat', tone: 'warn', title: 'Бататгах сэдэв', items: mid.map(x => `<b>«${esc(x.p.name)}»</b> · ${pctTxt(x.v)}.${x.goal ? ` Зорилт: ${esc(x.goal)}.` : ''} Ойлголт бүрэн тогтоогүй байна. Хэрэглээний даалгавар, хосоор ажиллах дасгалаар бататгана.`) });
   const lures = R.items.map(it => [it, lureOf(it, ex)]).filter(([it, l]) => l && it.q !== 'bad').sort((a, b) => b[1][1] - a[1][1]).slice(0, 5);
   if (lures.length) out.push({ icon: 'message-circle-warning', tone: 'warn', title: 'Заавал дурдах түгээмэл буруу ойлголт', items: lures.map(([it, l]) => `<b>${it.n}-р асуулт</b>${it.part && R.parts.length > 1 ? ` (${esc(it.part)})` : ''}: сурагчдын ${Math.round(l[1] * 100)}% нь «${l[0]}»-г сонгосон, зөв хариулт «${esc(it.key)}» (зөв ${Math.round(it.p * 100)}%). Энэ сонголт ямар буруу ойлголтоос үүдсэнийг ангиар хэлэлцэж, зөв ойлголтыг тодорхой тайлбарлана.`) });
+  const cgA = cogAdvice(R); if (cgA) out.push(cgA);
   const wr = R.written.filter(w => w.pct != null && w.pct < 60);
   if (wr.length) out.push({ icon: 'pen-line', tone: 'warn', title: 'Задгай даалгавар', items: wr.map(w => `<b>${w.n}-р даалгавар</b> · дундаж ${pctTxt(w.pct)}, ${w.zero} сурагч 0 оноо авсан${w.pending ? `, ${w.pending} сурагчийн оноо дутуу` : ''}. Шалгуурын алхам бүрийг жишээ хариултаар үзүүлж, тайлбар бичих дадлага хийлгэнэ.`) });
   const grp = LEVEL_ORDER.map(k => [k, R.recs.filter(r => r.lv === k)]).filter(([, l]) => l.length);
@@ -3310,9 +3548,10 @@ async function aiAdvice(ex) {
     thresholds: { successPct: st.thrSuccess, qualityPct: st.thrQuality, topicSupportPct: thrSupport() },
     summary: { meanPct: r1(R.mean), medianPct: r1(R.median), sd: r1(R.sd), successPct: r1(R.success), qualityPct: r1(R.quality), levels: { extending: R.lv.ext, secure: R.lv.sec, needsSupport: R.lv.sup }, alpha: R.alpha == null ? null : Math.round(R.alpha * 100) / 100 },
     topics: R.parts.map((p, j) => ({ name: p.name, learningGoal: p.goal || '', questions: p.items.map(i => i + 1), writtenTasks: p.written.map(w => w + 1), meanPct: r1(R.partPct[j]) })),
-    items: R.items.filter(it => it.keyed).map(it => ({ n: it.n, topic: it.part, key: it.mixed ? null : it.key, correctPct: Math.round(it.p * 100), discrimination: it.D == null ? null : Math.round(it.D * 100) / 100, choices: it.mixed ? null : it.dist })),
+    items: R.items.filter(it => it.keyed).map(it => ({ n: it.n, topic: it.part, key: it.mixed ? null : it.key, correctPct: Math.round(it.p * 100), discrimination: it.D == null ? null : Math.round(it.D * 100) / 100, choices: it.mixed ? null : it.dist, level: it.cog ? cogLv(ex, it.cog)?.en : undefined })),
     writtenTasks: R.written.map((w, i) => ({ n: w.n, task: w.prompt, rubric: wText(ex, i, V0(ex), 'rubric'), maxPoints: w.max, meanPct: r1(w.pct), zeroScores: w.zero })),
     classes: R.classes.length > 1 ? R.classes.map(c => ({ name: c.name, students: c.n, meanPct: r1(c.mean), topicPct: c.partPct.map(r1) })) : undefined,
+    cognitiveLevels: cogData(R),
   };
   const prompt = `You advise a Mongolian school teacher (subject: ${ex.subject || 'unspecified'}) after an exam. Below is the anonymised result data (JSON). The only information about question content is the topic names, learning goals and written-task texts; do not invent the content of multiple-choice questions, phrase advice at the topic level where needed.
 Data: ${JSON.stringify(data)}
@@ -3321,8 +3560,9 @@ Write in formal Mongolian, concrete and practical, based only on the data:
 - "priorities": up to 4 topics to focus on, weakest first; for each "topic", "why" (with the numbers), "mustMention" (2-4 key concepts or points the teacher must explicitly explain in the re-teaching lesson), "activities" (2-3 concrete classroom activities).
 - "misconceptions": up to 4 items where many students chose the same wrong option or scored low; "question" number, "likely" (the probable misconception, cautious wording), "address" (how to correct it).
 - "groups": one plan per level present (levels: "Дэмжлэг хэрэгтэй", "Хангалттай", "Ахисан"): "level", "plan".
+- "cognitive": when "cognitiveLevels" is present, 2-4 sentences: which thinking levels are weak (with numbers), what kinds of tasks to add in lessons for them, and whether the exam is balanced between lower- and higher-order thinking; otherwise "".
 - "nextCheck": one sentence on how to check progress next lesson.
-Reply with only JSON: {"summary":"","priorities":[{"topic":"","why":"","mustMention":[""],"activities":[""]}],"misconceptions":[{"question":1,"likely":"","address":""}],"groups":[{"level":"","plan":""}],"nextCheck":""}`;
+Reply with only JSON: {"summary":"","priorities":[{"topic":"","why":"","mustMention":[""],"activities":[""]}],"misconceptions":[{"question":1,"likely":"","address":""}],"groups":[{"level":"","plan":""}],"cognitive":"","nextCheck":""}`;
   try {
     const out = await Cap.sample.json(prompt);
     const x = clone(exam(ex.id)); x.aiAdvice = { ...(x.aiAdvice || {}), [aiKey()]: { ...out, at: now(), n: R.n } };
@@ -3341,8 +3581,9 @@ async function aiComments(ex) {
       UI.aiMsg = `Claude сурагч бүрийн тайлбарыг бичиж байна… (${done}/${recs.length})`; render();
       const students = chunk.map(r => ({ code: r.code, pct: Math.round(r.sc.pct), level: LEVELS[r.lv][0],
         topics: R.parts.map((p, j) => ({ name: p.name, pct: r.ps[j].pct == null ? null : Math.round(r.ps[j].pct), wrongQuestions: wrongIn(r, p) })),
-        written: r.wr.map((v, k) => v == null ? null : `${v}/${+ex.written[k].max || 0}`), writtenFeedback: (r.at.written || []).map(w => w.feedback).filter(Boolean).slice(0, 2) }));
-      const prompt = `Write one short individual comment per student for the note field of a school e-grading system (subject: ${ex.subject || 'unspecified'}, exam: ${ex.name}). Formal, warm Mongolian; no names; each at most ${NOTE_MAX - 30} characters. Mention one strength when there is one, the topic(s) to review with question numbers, and one concrete next step. Level thresholds: success ${settings().thrSuccess}%, quality ${settings().thrQuality}%.
+        written: r.wr.map((v, k) => v == null ? null : `${v}/${+ex.written[k].max || 0}`), writtenFeedback: (r.at.written || []).map(w => w.feedback).filter(Boolean).slice(0, 2),
+        cognitive: R.cog ? R.cog.levels.map((l, j) => ({ level: l.mn, pct: r.cg[j].pct == null ? null : Math.round(r.cg[j].pct) })) : undefined }));
+      const prompt = `Write one short individual comment per student for the note field of a school e-grading system (subject: ${ex.subject || 'unspecified'}, exam: ${ex.name}). Formal, warm Mongolian; no names; each at most ${NOTE_MAX - 30} characters. Mention one strength when there is one, the topic(s) to review with question numbers, and one concrete next step. When cognitive-level data is given and one thinking level is clearly weaker, name that level. Level thresholds: success ${settings().thrSuccess}%, quality ${settings().thrQuality}%.
 Students (JSON): ${JSON.stringify(students)}
 Reply with only JSON: {"comments":[{"code":"0001","text":"..."}]}`;
       const out = await Cap.sample.json(prompt);
@@ -3366,6 +3607,7 @@ function aiAdviceHtml(a) {
       ${(p.mustMention || []).length ? `<span class="eyebrow">Заавал дурдах</span><ul class="tips">${li(p.mustMention)}</ul>` : ''}${(p.activities || []).length ? `<span class="eyebrow">Үйл ажиллагаа</span><ul class="tips">${li(p.activities)}</ul>` : ''}</div></div>`).join('')}
     ${(a.misconceptions || []).length ? `<div><span class="eyebrow">Буруу ойлголт</span><ul class="tips">${a.misconceptions.map(m => `<li><b>${esc(m.question)}-р асуулт:</b> ${esc(m.likely)} ${m.address ? `<span class="muted">→ ${esc(m.address)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
     ${(a.groups || []).length ? `<div><span class="eyebrow">Бүлгээр</span><ul class="tips">${a.groups.map(g => `<li><b>${esc(g.level)}:</b> ${esc(g.plan)}</li>`).join('')}</ul></div>` : ''}
+    ${a.cognitive ? `<div><span class="eyebrow">Танин мэдэхүйн түвшин</span><p>${esc(a.cognitive)}</p></div>` : ''}
     ${a.nextCheck ? `<p class="small"><b>Ахицыг шалгах:</b> ${esc(a.nextCheck)}</p>` : ''}
     <p class="small muted">Claude ${new Date(a.at).toLocaleString('sv').slice(0, 16)}-нд ${a.n || ''} сурагчийн дүнгээр бичсэн. Зөвлөмжийг багш өөрөө хянаж хэрэглэнэ.</p></div>`;
 }
@@ -3653,6 +3895,7 @@ function pReports() {
       ${levelBlock(R)}
     </div>
     ${partsBlock(R, multiClass)}
+    ${cogBlock(R, multiClass)}
     ${multiClass ? groupTable('Ангиудын харьцуулалт', R.classes, R) : ''}
     ${!UI.repV ? groupTable('Хувилбаруудын харьцуулалт', R.versions, R) : ''}`;
   } else if (tab === 'students') {
@@ -3766,6 +4009,154 @@ async function downloadSlips(ex, onlyId) {
   await offerFile(`${safeName(ex.name)} - ${onlyId ? safeName(list[0]?.at.name) : 'дүнгийн хуудас'}.pdf`, pdfFromCanvases(pages));
 }
 
+// =============== accounts: e-mail or Google sign-in, a short profile for the administrator, the admin list ===============
+// The administrator sees only the account profile (name, e-mail, school, dates, counts), never students' names or scores:
+// those stay under users/{uid}, which only the teacher can read (firestore.rules).
+const AUTH_ERR = {
+  'auth/email-already-in-use': 'Энэ имэйлээр бүртгэл аль хэдийн үүссэн байна. «Нэвтрэх» хэсгээр орно уу.',
+  'auth/invalid-email': 'Имэйл хаяг буруу байна.',
+  'auth/weak-password': 'Нууц үг хамгийн багадаа 6 тэмдэгт байх ёстой.',
+  'auth/missing-password': 'Нууц үгээ оруулна уу.',
+  'auth/invalid-credential': 'Имэйл эсвэл нууц үг буруу байна.',
+  'auth/invalid-login-credentials': 'Имэйл эсвэл нууц үг буруу байна.',
+  'auth/wrong-password': 'Имэйл эсвэл нууц үг буруу байна.',
+  'auth/user-not-found': 'Энэ имэйлээр бүртгэл олдсонгүй.',
+  'auth/user-disabled': 'Энэ бүртгэлийг идэвхгүй болгосон байна. Админд хандана уу.',
+  'auth/too-many-requests': 'Олон удаа оролдсон тул түр хаагдлаа. Хэсэг хүлээгээд дахин оролдоно уу, эсвэл нууц үгээ сэргээнэ үү.',
+  'auth/account-exists-with-different-credential': 'Энэ имэйл өөр аргаар бүртгэгдсэн байна. Тэр аргаараа нэвтэрнэ үү.',
+  'auth/requires-recent-login': 'Аюулгүй байдлын үүднээс дахин нэвтэрнэ үү.',
+};
+const AUTH_LS = 'eduscan-signup';
+const providerName = p => p === 'google.com' ? 'Google' : p === 'password' ? 'Имэйл' : (p || '—');
+const dateTxt = t => t ? new Date(t - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '—';
+const agoTxt = t => { if (!t) return '—'; const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? 'өнөөдөр' : d === 1 ? 'өчигдөр' : d < 31 ? `${d} хоногийн өмнө` : dateTxt(t); };
+function pAccount() {
+  if (!Cap.cloudAvail) return `<h1>Бүртгэл</h1><div class="card"><p class="muted">Энэ хувилбарт өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана. Тусдаа бүртгэл шаардлагагүй.</p></div>`;
+  if (Cap.cloud) {
+    const pw = Cap.provider === 'password';
+    return `<h1>Миний бүртгэл</h1>
+    <div class="card"><div class="stack" style="gap:6px">
+      <p><b>${esc(Cap.name || settings().teacher || '—')}</b></p>
+      <p class="muted">${ic('mail')} ${esc(Cap.email)} · ${Cap.provider === 'google.com' ? 'Google-ээр' : 'имэйлээр'} нэвтэрсэн${pw ? (Cap.verified ? ' · <span class="pill ok">баталгаажсан</span>' : ' · <span class="pill warn">имэйл баталгаажаагүй</span>') : ''}</p>
+      ${pw && !Cap.verified ? `<p class="notice warn">${ic('mail-warning')}<span>${esc(Cap.email)} хаяг руу илгээсэн холбоосоор имэйлээ баталгаажуулна уу. Нууц үгээ мартсан үед сэргээхэд хэрэгтэй. <button class="btn link sm" data-act="authResend">Дахин илгээх</button></span></p>` : ''}
+      <p class="small muted">Бүртгүүлсэн: ${dateTxt(Cap.created)} · Бүртгэлийн ID: <span class="mono">${esc(Cap.uid)}</span></p>
+      <div class="row"><button class="btn" data-act="cloudOut">${ic('log-out')}Гарах</button></div></div></div>
+    <div class="card"><h2>Нууцлал</h2><p class="small muted">Таны сурагчдын нэр, дүн зөвхөн танд харагдана. EduScan-ийн админ таны бүртгэлийн мэдээлэл (нэр, имэйл, сургууль, бүртгүүлсэн ба сүүлд орсон огноо, шалгалт, сурагч, хуудасны тоо)-ийг харж, үйлчилгээг сайжруулахад ашиглана.</p></div>`;
+  }
+  const t = UI.authTab || 'in', msg = UI.authMsg;
+  const tabBtn = (k, l) => `<button type="button" role="tab" class="${t === k ? 'on' : ''}" data-act="authTab" data-t="${k}">${l}</button>`;
+  return `<h1>${t === 'up' ? 'Бүртгүүлэх' : t === 'reset' ? 'Нууц үг сэргээх' : 'Нэвтрэх'}</h1>
+  <div class="card authbox">
+    <p class="muted small">Нэвтэрвэл өгөгдөл тань бүртгэлд хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Энэ төхөөрөмж дээр одоо байгаа өгөгдөл бүртгэл рүү автоматаар нэгтгэгдэнэ.</p>
+    <button class="btn primary wide" data-act="cloudIn">${ic('log-in')}Google-ээр нэвтрэх</button>
+    <div class="ordiv"><span>эсвэл имэйлээр</span></div>
+    ${t !== 'reset' ? `<div class="tabs" role="tablist">${tabBtn('in', 'Нэвтрэх')}${tabBtn('up', 'Бүртгүүлэх')}</div>` : ''}
+    <form id="authForm" class="stack" style="gap:10px" novalidate>
+      ${t === 'up' ? `<label class="field"><span class="req">Таны нэр</span><input type="text" id="auName" autocomplete="name" placeholder="ж: Б. Болд"></label>
+        <label class="field">Сургууль<input type="text" id="auSchool" autocomplete="organization" placeholder="ж: 1-р сургууль" value="${esc(settings().school || '')}"></label>` : ''}
+      <label class="field"><span class="req">Имэйл</span><input type="email" id="auEmail" autocomplete="email" inputmode="email" placeholder="name@example.com"></label>
+      ${t !== 'reset' ? `<label class="field"><span class="req">Нууц үг</span><input type="password" id="auPass" autocomplete="${t === 'up' ? 'new-password' : 'current-password'}" placeholder="${t === 'up' ? 'Хамгийн багадаа 6 тэмдэгт' : ''}"></label>` : ''}
+      ${t === 'up' ? `<label class="field"><span class="req">Нууц үг давтах</span><input type="password" id="auPass2" autocomplete="new-password"></label>
+        <p class="small muted">${ic('shield-check')} Бүртгүүлснээр таны нэр, имэйл, сургууль, хэрэглээний тоо (шалгалт, сурагч, хуудасны тоо)-г EduScan-ийн админ харах боломжтой болно. Сурагчдын нэр, дүнг админ харахгүй.</p>` : ''}
+      <div id="authMsg">${msg ? `<p class="notice ${msg.bad ? 'bad' : 'ok'}">${ic(msg.bad ? 'triangle-alert' : 'circle-check')}<span>${esc(msg.text)}</span></p>` : ''}</div>
+      <button class="btn primary" type="submit" id="authGo">${t === 'up' ? ic('user-plus') + 'Бүртгүүлэх' : t === 'reset' ? ic('send') + 'Сэргээх холбоос илгээх' : ic('log-in') + 'Нэвтрэх'}</button>
+    </form>
+    <p class="small">${t === 'in' ? '<button class="btn link sm" data-act="authTab" data-t="reset">Нууц үгээ мартсан уу?</button>' : t === 'reset' ? '<button class="btn link sm" data-act="authTab" data-t="in">← Нэвтрэх рүү буцах</button>' : ''}</p>
+  </div>`;
+}
+function authNote(text, bad) {
+  UI.authMsg = text ? { text, bad: !!bad } : null;
+  const box = $('#authMsg'); if (box) box.innerHTML = text ? `<p class="notice ${bad ? 'bad' : 'ok'}">${ic(bad ? 'triangle-alert' : 'circle-check')}<span>${esc(text)}</span></p>` : '';
+  icons();
+}
+async function authSubmit() {
+  const C = window.EDU_CLOUD; if (!C?.signInEmail) return;
+  const t = UI.authTab || 'in', val = id => ($('#' + id)?.value || '').trim();
+  const email = val('auEmail'), pass = $('#auPass')?.value || '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authNote('Имэйл хаягаа зөв оруулна уу.', true); $('#auEmail')?.focus(); return; }
+  if (t === 'up') {
+    const name = val('auName'), school = val('auSchool');
+    if (!name) { authNote('Нэрээ оруулна уу.', true); $('#auName')?.focus(); return; }
+    if (pass.length < 6) { authNote('Нууц үг хамгийн багадаа 6 тэмдэгт байх ёстой.', true); $('#auPass')?.focus(); return; }
+    if (pass !== ($('#auPass2')?.value || '')) { authNote('Давтан оруулсан нууц үг таарахгүй байна.', true); $('#auPass2')?.focus(); return; }
+    try { localStorage.setItem(AUTH_LS, JSON.stringify({ name, school })); } catch {}
+  } else if (t === 'in' && !pass) { authNote('Нууц үгээ оруулна уу.', true); $('#auPass')?.focus(); return; }
+  const btn = $('#authGo'); if (btn) { btn.disabled = true; btn.insertAdjacentHTML('afterbegin', '<span class="busy"></span>'); }
+  try {
+    if (t === 'reset') { await C.resetPassword(email); authNote(`Нууц үг сэргээх холбоосыг ${email} хаяг руу илгээлээ (энэ имэйлээр бүртгэл байгаа бол). Ирсэн имэйлээ, Spam хавтсаа шалгана уу.`); }
+    else { if (t === 'up') await C.signUp(email, pass, val('auName')); else await C.signInEmail(email, pass); location.reload(); return; }
+  } catch (e) { if (t === 'up') { try { localStorage.removeItem(AUTH_LS); } catch {} } authNote(cloudErr(e), true); }
+  if (btn) { btn.disabled = false; btn.querySelector('.busy')?.remove(); }
+}
+// profile for the administrator: written on start and, at most every few minutes, after changes
+let profileTimer = null, profileLast = '';
+function profileData() {
+  const st = settings();
+  return { name: String(st.teacher || Cap.name || '').slice(0, 120), email: Cap.email || '', school: String(st.school || '').slice(0, 160), provider: Cap.provider || '', verified: !!Cap.verified,
+    created: Cap.created || 0, counts: { classes: S.classes.length, students: S.students.length, exams: S.exams.length, attempts: S.attempts.length }, ver: 1 };
+}
+function syncProfile() {
+  if (!Cap.cloud || !window.EDU_CLOUD?.saveProfile) return;
+  const d = profileData(), j = JSON.stringify(d), key = 'eduscan-seen-' + Cap.uid;
+  let seen = 0; try { seen = +localStorage.getItem(key) || 0; } catch {}
+  if (j === profileLast && Date.now() - seen < 6 * 3600e3) return; // nothing new; refresh "last seen" a few times a day
+  profileLast = j;
+  window.EDU_CLOUD.saveProfile({ ...d, seen: Date.now() }).then(() => { try { localStorage.setItem(key, String(Date.now())); } catch {} }).catch(() => { profileLast = ''; });
+}
+function profileSoon() { if (!Cap.cloud) return; clearTimeout(profileTimer); profileTimer = setTimeout(syncProfile, 20000); }
+async function accountsAfterBoot() {
+  if (!Cap.cloud) return;
+  // name and school typed when signing up go into the settings of the new account
+  let stash = null; try { stash = JSON.parse(localStorage.getItem(AUTH_LS) || 'null'); localStorage.removeItem(AUTH_LS); } catch {}
+  if (stash) {
+    const st = clone(settings()); let ch = false;
+    if (stash.name && !st.teacher) { st.teacher = stash.name; ch = true; }
+    if (stash.school && !st.school) { st.school = stash.school; ch = true; }
+    if (ch) { S.settings = [st]; await put('settings', st); render(); }
+  }
+  syncProfile();
+  try { if (await window.EDU_CLOUD.isAdmin?.()) { Cap.admin = true; renderSide(); if (UI.page === 'admin') render(); } } catch {}
+}
+// ---- administrator: everyone who has an account ----
+async function loadAdmin() {
+  UI.adminBusy = true; UI.adminErr = '';
+  try { UI.adminList = await window.EDU_CLOUD.listProfiles(); }
+  catch (e) { UI.adminErr = e?.code === 'permission-denied' ? 'Бүртгэлийн жагсаалтыг харах эрх алга. Firestore-ийн дүрэм болон admins бичлэгийг шалгана уу.' : 'Жагсаалтыг ачаалж чадсангүй. Интернэтээ шалгана уу.'; }
+  UI.adminBusy = false; if (UI.page === 'admin') render();
+}
+function pAdmin() {
+  if (!Cap.admin) return pDashboard();
+  if (!UI.adminList && !UI.adminBusy && !UI.adminErr) { loadAdmin(); }
+  const all = (UI.adminList || []).slice(), q = (UI.adminQ || '').trim().toLowerCase();
+  const list = (q ? all.filter(p => `${p.name} ${p.email} ${p.school}`.toLowerCase().includes(q)) : all).sort((a, b) => (b.seen || 0) - (a.seen || 0));
+  const sum = k => all.reduce((a, p) => a + (+p.counts?.[k] || 0), 0);
+  const schools = new Set(all.map(p => String(p.school || '').trim().toLowerCase()).filter(Boolean));
+  const week = all.filter(p => p.seen && Date.now() - p.seen < 7 * 864e5).length;
+  return `<div class="spread"><div class="stack" style="gap:2px"><h1>Бүртгэлүүд</h1><p class="muted">EduScan-д бүртгүүлсэн багш нар. Энэ хуудас зөвхөн админд харагдана.</p></div>
+    <div class="row"><button class="btn" data-act="adminReload" ${UI.adminBusy ? 'disabled' : ''}>${UI.adminBusy ? '<span class="busy"></span>' : ic('refresh-cw')}Шинэчлэх</button><button class="btn" data-act="adminExport" ${all.length ? '' : 'disabled'}>${ic('file-spreadsheet')}Excel</button></div></div>
+  ${UI.adminErr ? `<div class="notice bad">${ic('triangle-alert')}<span>${esc(UI.adminErr)}</span></div>` : ''}
+  <div class="stats">
+    <div class="stat">${ic('users')}<span class="eyebrow">Бүртгэлтэй багш</span><b>${all.length}</b><span class="small muted">${week} нь сүүлийн 7 хоногт идэвхтэй</span></div>
+    <div class="stat">${ic('school')}<span class="eyebrow">Сургууль</span><b>${schools.size}</b><span class="small muted">сургуулийн нэр бичсэн</span></div>
+    <div class="stat">${ic('scan-line')}<span class="eyebrow">Засагдсан хуудас</span><b>${sum('attempts').toLocaleString('en-US')}</b><span class="small muted">${sum('exams')} шалгалт</span></div>
+    <div class="stat">${ic('graduation-cap')}<span class="eyebrow">Сурагч</span><b>${sum('students').toLocaleString('en-US')}</b><span class="small muted">${sum('classes')} анги</span></div>
+  </div>
+  <div class="card"><div class="spread"><h2>Жагсаалт</h2><input type="search" id="adminQ" placeholder="Нэр, имэйл, сургууль хайх" value="${esc(UI.adminQ || '')}" aria-label="Бүртгэл хайх"></div>
+    ${UI.adminBusy && !UI.adminList ? '<p class="muted"><span class="busy"></span> Ачаалж байна…</p>' : list.length ? `<div class="tablebox"><table><thead><tr><th>Багш</th><th>Имэйл</th><th>Арга</th><th>Сургууль</th><th>Бүртгүүлсэн</th><th>Сүүлд орсон</th><th class="num">Анги</th><th class="num">Сурагч</th><th class="num">Шалгалт</th><th class="num">Хуудас</th></tr></thead><tbody>
+      ${list.map(p => `<tr><td class="name">${esc(p.name || '—')}</td><td class="mono small">${esc(p.email || '')}</td><td>${providerName(p.provider)}${p.provider === 'password' && !p.verified ? ' <span class="pill warn">баталгаажаагүй</span>' : ''}</td><td>${esc(p.school || '—')}</td>
+        <td class="mono small">${dateTxt(p.created)}</td><td class="small">${agoTxt(p.seen)}</td><td class="num">${+p.counts?.classes || 0}</td><td class="num">${+p.counts?.students || 0}</td><td class="num">${+p.counts?.exams || 0}</td><td class="num"><b>${+p.counts?.attempts || 0}</b></td></tr>`).join('')}
+    </tbody></table></div>` : `<p class="muted">${q ? 'Хайлтад тохирох бүртгэл алга.' : 'Одоогоор бүртгэл алга.'}</p>`}
+    <p class="small muted">${ic('shield-check')} Багшийн сурагчдын нэр, дүн энд харагдахгүй: тэдгээр нь зөвхөн тухайн багшид хадгалагдана. Бүртгэлийг идэвхгүй болгох, устгахыг Firebase Console → Authentication хэсгээс хийнэ.</p></div>`;
+}
+async function adminExport() {
+  const rows = (UI.adminList || []).slice().sort((a, b) => (b.seen || 0) - (a.seen || 0)).map(p => ({ 'Багш': p.name || '', 'Имэйл': p.email || '', 'Арга': providerName(p.provider), 'Баталгаажсан': p.provider === 'password' ? (p.verified ? 'тийм' : 'үгүй') : '',
+    'Сургууль': p.school || '', 'Бүртгүүлсэн': dateTxt(p.created), 'Сүүлд орсон': dateTxt(p.seen), 'Анги': +p.counts?.classes || 0, 'Сурагч': +p.counts?.students || 0, 'Шалгалт': +p.counts?.exams || 0, 'Хуудас': +p.counts?.attempts || 0 }));
+  if (!window.XLSX) { toast('Excel сан ачаалагдаагүй байна.', true); return; }
+  const ws = XLSX.utils.json_to_sheet(rows); ws['!cols'] = [24, 30, 9, 12, 28, 12, 12, 7, 8, 8, 8].map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Бүртгэлүүд');
+  await offerFile(`EduScan бүртгэлүүд ${todayStr()}.xlsx`, new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+}
+
 // =============== pages: archive & settings ===============
 function pArchive() {
   const list = S.exams.filter(x => x.status === 'archived').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -3791,11 +4182,11 @@ function pSettings() {
     <p class="small muted">Амжилт: босгоос дээш хувьтай сурагчдын эзлэх хувь. Чанар: чанарын босгоос дээш хувьтай сурагчдын эзлэх хувь. Түвшин: амжилтын босгоос доош бол «Дэмжлэг хэрэгтэй», амжилтын босгоос дээш «Хангалттай», чанарын босгоос дээш «Ахисан». Сэдвийн дэмжлэгийн босго: сурагч аль нэг сэдэвт энэ хувиас доош гүйцэтгэвэл тайланд тэр сэдвээр дэмжлэг хэрэгтэй гэж тэмдэглэнэ. Сургуулийнхаа журмаар тохируулна уу.</p></div>
   <div class="row"><button class="btn primary" data-act="saveSettings">${ic('save')}Тохиргоо хадгалах</button></div>
   <div class="card"><h2>Өгөгдөл хадгалалт</h2>
-    <p>${Cap.cloud ? `${ic('cloud')} Өгөгдөл таны Google бүртгэлд${Cap.email ? ' (' + esc(Cap.email) + ')' : ''} хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Зөвхөн та харна. Интернэтгүй үед ч хадгалж, холбогдмогц илгээнэ.`
+    <p>${Cap.cloud ? `${ic('cloud')} Өгөгдөл таны бүртгэлд${Cap.email ? ' (' + esc(Cap.email) + ')' : ''} хадгалагдаж, утас, компьютер хооронд шууд синк хийгдэнэ. Зөвхөн та харна. Интернэтгүй үед ч хадгалж, холбогдмогц илгээнэ.`
       : Cap.mode === 'db' ? `${ic('cloud')} Өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана. Зөвхөн та харна. Утас, компьютер аль алинаас нэвтэрч ашиглана.`
-      : Cap.mode === 'local' ? `Өгөгдөл зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана.${Cap.cloudAvail ? ' Утас, компьютер хоёрыг холбохын тулд хоёулан дээр нь ижил Google бүртгэлээр нэвтэрнэ үү. Энэ төхөөрөмж дээрх өгөгдөл таны бүртгэл рүү автоматаар нэгтгэгдэнэ.' : ' Сервертэй синк хийгдэхгүй.'}` : 'Өгөгдөл хадгалагдахгүй горим.'}</p>
-    ${Cap.cloud ? `<div class="row"><span class="small muted">${ic('user')} ${esc(Cap.name || Cap.email)}</span><button class="btn sm" data-act="cloudOut">${ic('log-out')}Гарах</button></div>`
-      : Cap.cloudAvail ? `<div class="row"><button class="btn primary" data-act="cloudIn">${ic('log-in')}Google-ээр нэвтрэх</button></div>` : ''}
+      : Cap.mode === 'local' ? `Өгөгдөл зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдана.${Cap.cloudAvail ? ' Утас, компьютер хоёрыг холбохын тулд хоёулан дээр нь ижил бүртгэлээр нэвтэрнэ үү. Энэ төхөөрөмж дээрх өгөгдөл таны бүртгэл рүү автоматаар нэгтгэгдэнэ.' : ' Сервертэй синк хийгдэхгүй.'}` : 'Өгөгдөл хадгалагдахгүй горим.'}</p>
+    ${Cap.cloud ? `<div class="row"><span class="small muted">${ic('user')} ${esc(Cap.name || Cap.email)}</span><button class="btn sm" data-go="account">${ic('user-cog')}Бүртгэл</button><button class="btn sm" data-act="cloudOut">${ic('log-out')}Гарах</button></div>`
+      : Cap.cloudAvail ? `<div class="row"><button class="btn primary" data-go="account">${ic('log-in')}Нэвтрэх / Бүртгүүлэх</button></div>` : ''}
     <p class="small muted">${S.exams.length} шалгалт · ${S.classes.length} анги · ${S.students.length} сурагч · ${S.attempts.length} үр дүн</p>
     <div class="row"><button class="btn" data-act="backup">${ic('download')}Нөөц файл татах (JSON)</button><button class="btn" data-act="restore">${ic('upload')}Нөөцөөс сэргээх</button></div></div>
   ${aiCard()}`;
@@ -3990,6 +4381,12 @@ const A = {
   },
   repTab: el => { UI.repTab = el.dataset.tab; render(); },
   slipOne: el => downloadSlips(exam(UI.reportExamId), el.dataset.id),
+  cogAI: () => $('#cogFiles')?.click(),
+  cogAIw: () => aiCog([]),
+  authTab: el => { UI.authTab = el.dataset.t; UI.authMsg = null; render(); $('#auEmail')?.focus(); },
+  authResend: async () => { try { await window.EDU_CLOUD.sendVerification(); toast('Баталгаажуулах имэйлийг дахин илгээлээ.'); } catch (e) { toast(cloudErr(e), true); } },
+  adminReload: () => { UI.adminList = null; UI.adminErr = ''; loadAdmin(); render(); },
+  adminExport: () => adminExport(),
   aiSave: async () => {
     const typed = ($('#aiKey')?.value || '').trim(), key = typed || aiConf().key, model = $('#aiModel')?.value || aiModel().id;
     if (!key) { UI.aiNote = { bad: true, text: 'API түлхүүрээ оруулна уу.' }; render(); return; }
@@ -4046,6 +4443,9 @@ document.addEventListener('click', ev => {
 document.addEventListener('change', async ev => {
   const t = ev.target;
   if (t.id === 'cam' || t.id === 'pick') { const f = t.files[0]; t.value = ''; if (f) handleScanFile(f); return; }
+  if (UI.draft && t.dataset.cgw != null) { const w = UI.draft.data.written?.[+t.dataset.cgw]; if (w) { if (t.value) w.cog = t.value; else delete w.cog; markDirty(); } return; }
+  if (UI.draft && t.dataset.cogfw != null) { const d = UI.draft.data; d.cog = { fw: t.value, ranges: {} }; (d.written || []).forEach(w => delete w.cog); markDirty(); render(); return; }
+  if (t.id === 'cogFiles') { const f = [...(t.files || [])]; t.value = ''; if (f.length) aiCog(f); return; }
   if (t.id === 'aiModel') { const c = aiConf(); if (c.key) { aiSetConf({ ...c, model: t.value }); aiApiInit(); UI.aiNote = { text: `${aiModel().name} сонгогдлоо.` }; render(); } return; }
   if (t.id === 'lvAuto') { LV.auto = t.checked; try { localStorage.setItem('eduscan-live-auto', t.checked ? '1' : '0'); } catch {} return; }
   if (t.id === 'camBack' || t.id === 'pickBack') { const f = t.files[0]; t.value = ''; if (f) handleBackFile(f); return; }
@@ -4117,6 +4517,8 @@ document.addEventListener('input', ev => {
   if (t.id === 'rpQ') { UI.reportQ = t.value; const pos = t.selectionStart; render(); const n = $('#rpQ'); n.focus(); n.setSelectionRange(pos, pos); return; }
   if (UI.draft && t.dataset.d && !['count', 'choices', 'classId', 'status', 'nver', 'writtenOn'].includes(t.dataset.d)) { UI.draft.data[t.dataset.d] = t.value; markDirty(); return; }
   if (t.dataset.cm) { const n = $(`[data-cmn="${t.dataset.cm}"]`); if (n) n.textContent = `${t.value.length}/${NOTE_MAX} · засварлаж байна`; return; }
+  if (UI.draft && t.dataset.cg) { cogSetRange(UI.draft.data, t.dataset.cg, t.value); markDirty(); return; }
+  if (t.id === 'adminQ') { UI.adminQ = t.value; const pos = t.selectionStart; render(); const n = $('#adminQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch {} return; }
   if (UI.draft && t.dataset.tp) {
     const d = UI.draft.data, tp = (d.topics || [])[+t.dataset.i]; if (!tp) return;
     tp[t.dataset.tp] = t.value; markDirty();
@@ -4149,7 +4551,8 @@ document.addEventListener('keydown', ev => {
 window.addEventListener('beforeunload', ev => { if (UI.draft?.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
 function icons() { try { window.lucide?.createIcons({ attrs: { 'stroke-width': 1.8 } }); } catch {} }
 
-(async () => { await initStore(); render(); })();
+document.addEventListener('submit', ev => { if (ev.target.id === 'authForm') { ev.preventDefault(); authSubmit(); } });
+(async () => { await initStore(); render(); accountsAfterBoot(); })();
 </script>
 
 <button id="installBtn" hidden aria-label="EduScan-ийг апп болгон суулгах">＋ Апп болгон суулгах</button>
