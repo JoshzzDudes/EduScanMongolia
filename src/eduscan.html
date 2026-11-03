@@ -511,6 +511,16 @@ td.wrapcell textarea { width: 100%; box-sizing: border-box; min-height: 52px; fo
 .gb.l8 { grid-template-columns: 40px 1fr 32px; }
 .lv8desc { margin: 2px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
 details.lv8 summary { cursor: pointer; }
+/* profile picture */
+.avatar.pic { padding: 0; overflow: hidden; background: var(--sunk); }
+.avatar.pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar.emo { background: var(--a2s); font-size: 17px; font-weight: 400; line-height: 1; }
+.avatar.lg.emo { font-size: 24px; } .avatar.xl.emo { font-size: 34px; }
+.avatar.xxl { width: 88px; height: 88px; font-size: 34px; flex: none; } .avatar.xxl.emo { font-size: 52px; }
+.emogrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; }
+.emogrid button { font-size: 24px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; line-height: 1; padding: 0; }
+.emogrid button:hover { border-color: var(--a2); }
+.emogrid button.on { border-color: var(--a2); box-shadow: 0 0 0 3px var(--a2s); }
 </style>
 
 <div class="shell">
@@ -4458,7 +4468,7 @@ function renderTop() {
   box.hidden = !UI.notifOpen;
   if (UI.notifOpen) box.innerHTML = n.length ? n.map((x, i) => `<button data-act="notifGo" data-i="${i}">${ic(x.icon)}<span>${esc(x.text)}</span></button>`).join('') : '<p class="muted small" style="padding:12px">Шинэ мэдэгдэл алга.</p>';
   const name = meName() || 'Багш', chip = $('#userchip');
-  chip.innerHTML = `<span class="avatar">${esc(name.slice(0, 1).toUpperCase())}</span><span class="ell">${esc(name)}</span>`;
+  chip.innerHTML = `${avatarHtml()}<span class="ell">${esc(name)}</span>`;
   chip.setAttribute('aria-expanded', UI.meOpen ? 'true' : 'false');
   const me = $('#mebox'); me.hidden = !UI.meOpen; if (UI.meOpen) me.innerHTML = meMenu();
 }
@@ -5816,6 +5826,44 @@ async function accountsAfterBoot() {
 }
 // ---- own profile: a menu on the top-right chip, an editable page ----
 const meName = () => (settings().teacher || Cap.name || '').trim();
+// profile picture: a small square photo (data URL) or an emoji, kept in settings so it syncs with the account; never sent to the admin
+const AV_EMOJI = ['🧪', '⚗️', '🔬', '🧬', '⚛️', '🧲', '💡', '📚', '📖', '✏️', '🎓', '👩‍🏫', '👨‍🏫', '🧑‍🔬', '👩‍🔬', '👨‍🔬', '🌟', '⭐', '🌈', '☀️', '🌙', '🌸', '🌻', '🍀',
+  '🌲', '🏔️', '🐎', '🦅', '🐺', '🐼', '🦊', '🐱', '🐶', '🦋', '🐬', '🦄', '🎨', '🎵', '⚽', '🏀', '♟️', '😊', '😎', '🤓', '🥰', '🤗', '🔥', '💎', '❤️', '💜'];
+function avatarHtml(cls = '') {
+  const a = settings().avatar, name = meName() || 'Багш';
+  if (a?.img && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a.img)) return `<span class="avatar pic ${cls}"><img src="${a.img}" alt=""></span>`;
+  if (a?.emoji) return `<span class="avatar emo ${cls}">${esc(a.emoji)}</span>`;
+  return `<span class="avatar ${cls}">${esc(name.slice(0, 1).toUpperCase())}</span>`;
+}
+async function setAvatar(a) {
+  const st = clone(settings()); if (a) st.avatar = a; else delete st.avatar;
+  S.settings = [st];
+  if (await put('settings', st)) toast(a ? 'Профайлын зураг хадгалагдлаа' : 'Нэрийн эхний үсэг рүү буцлаа');
+  render();
+}
+// center square, 192 px JPEG: a few kilobytes, sharp enough for the largest avatar
+async function avatarFromFile(f) {
+  if (!f || !(f.type || '').startsWith('image/')) { toast('Зургийн файл сонгоно уу.', true); return; }
+  try {
+    const bmp = await loadBitmap(f), s = Math.min(bmp.width, bmp.height), c = document.createElement('canvas'); c.width = c.height = 192;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 192, 192);
+    ctx.drawImage(bmp, (bmp.width - s) / 2, (bmp.height - s) / 2, s, s, 0, 0, 192, 192);
+    await setAvatar({ img: c.toDataURL('image/jpeg', 0.85) });
+  } catch { toast('Зургийг уншиж чадсангүй. Өөр зураг сонгоно уу.', true); }
+}
+const firstGrapheme = s => { try { return new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)[Symbol.iterator]().next().value?.segment || ''; } catch { return [...s][0] || ''; } };
+function avatarCard() {
+  const a = settings().avatar || {};
+  return `<div class="card"><h2>Профайлын зураг</h2>
+    <div class="row" style="gap:16px">${avatarHtml('xxl')}
+      <div class="stack" style="gap:8px;flex:1 1 220px"><div class="row"><label class="btn primary" style="cursor:pointer">${ic('image-plus')}Зураг оруулах<input type="file" id="avFile" accept="image/*" class="hidden-input"></label>
+        ${a.img || a.emoji ? `<button class="btn" data-act="avClear">${ic('rotate-ccw')}Нэрийн үсэг рүү буцаах</button>` : ''}</div>
+        <span class="small muted">Утсан дээр «Зураг оруулах» дарахад камераар авах эсвэл зургийн цомгоос сонгох боломжтой. Зургийн голыг дөрвөлжин тайрч, жижигрүүлээд хадгална.</span></div></div>
+    <span class="eyebrow">Эсвэл эможи сонгох</span>
+    <div class="emogrid">${AV_EMOJI.map(e => `<button type="button" data-act="avEmoji" data-e="${esc(e)}" class="${a.emoji === e ? 'on' : ''}" aria-label="${esc(e)} эможи" aria-pressed="${a.emoji === e}">${e}</button>`).join('')}</div>
+    <div class="row"><input type="text" id="pfEmoji" maxlength="16" placeholder="Өөр эможи, ж: 😀" style="width:190px" aria-label="Өөр эможи"><button class="btn" data-act="avEmojiCustom">Тохируулах</button></div>
+    <p class="small muted">Зураг, эможи таны бүртгэлд хадгалагдаж, дээд талын профайлын тэмдэг, цэсэнд харагдана. Админд илгээгдэхгүй. Нэрэндээ ч эможи бичиж болно.</p></div>`;
+}
 function noteIn(id, text, bad) {
   const box = $('#' + id); if (!box) return;
   box.innerHTML = text ? `<p class="notice ${bad ? 'bad' : 'ok'}">${ic(bad ? 'triangle-alert' : 'circle-check')}<span>${esc(text)}</span></p>` : '';
@@ -5824,7 +5872,7 @@ function noteIn(id, text, bad) {
 function meMenu() {
   const name = meName() || 'Багш', st = settings();
   const how = Cap.cloud ? `${Cap.provider === 'google.com' ? 'Google' : 'Имэйл'} бүртгэлээр нэвтэрсэн` : Cap.mode === 'db' ? 'Claude бүртгэлээр хадгалагдана' : Cap.cloudAvail ? 'Нэвтрээгүй: өгөгдөл зөвхөн энэ төхөөрөмжид' : 'Өгөгдөл энэ төхөөрөмжид';
-  return `<div class="mehead"><span class="avatar lg">${esc(name.slice(0, 1).toUpperCase())}</span><div class="stack" style="gap:2px;min-width:0"><b class="ell">${esc(name)}</b>${Cap.email ? `<span class="small muted ell">${esc(Cap.email)}</span>` : ''}${st.school ? `<span class="small muted ell">${esc(st.school)}</span>` : ''}</div></div>
+  return `<div class="mehead">${avatarHtml('lg')}<div class="stack" style="gap:2px;min-width:0"><b class="ell">${esc(name)}</b>${Cap.email ? `<span class="small muted ell">${esc(Cap.email)}</span>` : ''}${st.school ? `<span class="small muted ell">${esc(st.school)}</span>` : ''}</div></div>
     <p class="small muted mehow">${ic(Cap.cloud || Cap.mode === 'db' ? 'cloud' : 'hard-drive')}<span>${how}</span></p>
     <button data-go="account">${ic(Cap.cloudAvail && !Cap.cloud ? 'log-in' : 'pencil')}<span>${Cap.cloudAvail && !Cap.cloud ? 'Нэвтрэх / Бүртгүүлэх' : 'Профайл харах, засах'}</span></button>
     <button data-go="news">${ic('megaphone')}<span>Шинэ боломжууд${newsUnseen() ? ' <span class="pill acc">шинэ</span>' : ''}</span></button>
@@ -5854,19 +5902,21 @@ function profilePage() {
   const name = meName() || 'Багш';
   if (!Cap.cloud) {
     return `<h1>Миний профайл</h1>
-    <div class="card"><div class="mehead"><span class="avatar xl">${esc(name.slice(0, 1).toUpperCase())}</span><div class="stack" style="gap:2px"><b>${esc(name)}</b><span class="small muted">${Cap.mode === 'db' ? 'Өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана.' : 'Өгөгдөл энэ төхөөрөмжид хадгалагдана.'}</span></div></div></div>
+    <div class="card"><div class="mehead">${avatarHtml('xl')}<div class="stack" style="gap:2px"><b>${esc(name)}</b><span class="small muted">${Cap.mode === 'db' ? 'Өгөгдөл таны Claude бүртгэлтэй холбоотой хадгалагдана.' : 'Өгөгдөл энэ төхөөрөмжид хадгалагдана.'}</span></div></div></div>
+    ${avatarCard()}
     <div class="card"><h2>Мэдээлэл засах</h2>${profileForm(false)}</div>
     ${claudeAcc() ? privacyCard() : ''}`;
   }
   const pw = Cap.provider === 'password';
   return `<h1>Миний профайл</h1>
-  <div class="card"><div class="mehead wrap"><span class="avatar xl">${esc(name.slice(0, 1).toUpperCase())}</span>
+  <div class="card"><div class="mehead wrap">${avatarHtml('xl')}
     <div class="stack" style="gap:3px;min-width:0;flex:1 1 220px"><b>${esc(name)}</b>
       <span class="small muted">${ic('mail')} ${esc(Cap.email)} · ${Cap.provider === 'google.com' ? 'Google-ээр' : 'имэйлээр'} нэвтэрсэн${pw ? (Cap.verified ? ' · <span class="pill ok">баталгаажсан</span>' : ' · <span class="pill warn">имэйл баталгаажаагүй</span>') : ''}</span>
       <span class="small muted">Бүртгүүлсэн: ${dateTxt(Cap.created)}${settings().school ? ' · ' + esc(settings().school) : ''}</span>
       <span class="small muted">Бүртгэлийн ID: <span class="mono" id="myUid">${esc(Cap.uid || '')}</span> <button class="btn link sm" data-act="copyText" data-target="#myUid">Хуулах</button>${Cap.admin ? ' · <span class="pill acc">Админ</span>' : ''}</span></div>
     <div class="row">${Cap.admin ? `<button class="btn" data-go="admin">${ic('shield-check')}Бүртгэлүүд</button>` : ''}<button class="btn" data-act="cloudOut">${ic('log-out')}Гарах</button></div></div>
     ${pw && !Cap.verified ? `<p class="notice warn">${ic('mail-warning')}<span>${esc(Cap.email)} хаяг руу илгээсэн холбоосоор имэйлээ баталгаажуулна уу. Нууц үгээ мартсан үед сэргээхэд хэрэгтэй. <button class="btn link sm" data-act="authResend">Дахин илгээх</button></span></p>` : ''}</div>
+  ${avatarCard()}
   <div class="card"><h2>Мэдээлэл засах</h2>${profileForm(true)}</div>
   ${pw ? `<div class="card"><h2>Нууц үг солих</h2><form id="pwForm" class="stack" style="gap:10px" novalidate>
       <input type="email" autocomplete="username" value="${esc(Cap.email)}" hidden>
@@ -6005,6 +6055,9 @@ const NEWS = [
   { v: '1.8.0', date: '2026-11-04', items: [
     ['flask-conical', 'Томьёо, урвалын тэгшитгэл', 'H2SO4, Fe3+, SO42-, 2H2 + O2 -> 2H2O гэж энгийнээр бичихэд доод, дээд индекс, ионы цэнэг, урвалын сум өөрөө үзэмжтэй харагдана. Бутархай, язгуур, зэрэг, Грек үсгийг $…$ дотор бичнэ (жишээ нь c = n/V). Апп дотор болон хэвлэсэн хариултын хуудсанд яг адилхан гарна.'],
     ['pen-line', 'Томьёо оруулах товчлуур', 'Задгай даалгаврын текстийн доор x², →, ⇌, ↑, Δ, бутархай, язгуурын товч, бичих заавар, хуудсанд хэрхэн хэвлэгдэхийг урьдчилан харах хэсэг нэмэгдсэн. Claude-ийн эргэх холбоо, зөвлөмж дэх томьёо ч мөн хэлбэржинэ.'],
+  ] },
+  { v: '1.7.1', date: '2026-10-30', items: [
+    ['smile-plus', 'Профайлын зураг, эможи', 'Профайл дээрээ зураг оруулах (утсаар шууд авах эсвэл цомгоос сонгох) эсвэл эможи сонгоно. Баруун дээд буланд нэрийн хажууд харагдана. Админд илгээгдэхгүй.', 'account'],
   ] },
   { v: '1.7.0', date: '2026-10-30', items: [
     ['graduation-cap', 'Cambridge AS & A Level маягийн хариултын хуудас', 'Сурагчийн код (Candidate number), сургуулийн дугаар (Centre number), гарын үсэг, монгол, англи заавар, A–D гонзгой нүд, аравтаар бүлэглэсэн 40 асуулт (60 хүртэл). Сурагчдыг Cambridge-ийн шалгалтын хуудсанд дасгана. «Хариултын хуудас» хэсгийн «Хуудасны загвар»-аас сонгоно.', 'sheets'],
@@ -6324,6 +6377,13 @@ const A = {
   curPasteClose: () => { UI.curPaste = false; render(); },
   curText: () => { const t = ($('#curText')?.value || '').trim(); if (!t) { toast('Асуултуудын текстийг буулгана уу.', true); return; } aiCur([], t); },
   curAIq: () => aiCur([], '', true),
+  avEmoji: el => setAvatar({ emoji: el.dataset.e }),
+  avClear: () => setAvatar(null),
+  avEmojiCustom: () => {
+    const v = firstGrapheme(($('#pfEmoji')?.value || '').trim());
+    if (!v || !/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(v)) { toast('Эможи оруулна уу (ж: 😀).', true); $('#pfEmoji')?.focus(); return; }
+    setAvatar({ emoji: v });
+  },
   authTab: el => { UI.authTab = el.dataset.t; UI.authMsg = null; render(); $('#auEmail')?.focus(); },
   authResend: async () => { try { await window.EDU_CLOUD.sendVerification(); toast('Баталгаажуулах имэйлийг дахин илгээлээ.'); } catch (e) { toast(cloudErr(e), true); } },
   adminReload: () => { UI.adminList = null; UI.adminErr = ''; loadAdmin(); render(); },
@@ -6397,6 +6457,7 @@ document.addEventListener('change', async ev => {
   if (t.dataset.bt != null && UI.batch) { const p = UI.batch.props[+t.dataset.bt]; if (p) p.on = t.checked; return; }
   if (t.id === 'cogFiles') { const f = [...(t.files || [])]; t.value = ''; if (f.length) aiCog(f); return; }
   if (t.id === 'curFiles') { const f = [...(t.files || [])]; t.value = ''; if (f.length) aiCur(f); return; }
+  if (t.id === 'avFile') { const f = t.files[0]; t.value = ''; if (f) avatarFromFile(f); return; }
   if (UI.draft && t.dataset.cu) { curSet(UI.draft.data, t); return; }
   if (UI.draft && t.dataset.curp != null) { const d = UI.draft.data; d.cur = { ...(d.cur || {}), prog: t.value }; markDirty(); render(); return; }
   if (t.id === 'aiModel') { const c = aiConf(); if (c.key) { aiSetConf({ ...c, model: t.value }); aiApiInit(); UI.aiNote = { text: `${aiModel().name} сонгогдлоо.` }; render(); } return; }
@@ -6502,6 +6563,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key !== 'Enter') return;
   if (ev.target.id === 'bulkKey') A.bulkKey();
   if (ev.target.id === 'nxName') A.createExam();
+  if (ev.target.id === 'pfEmoji') A.avEmojiCustom();
 });
 ['dragover', 'dragleave', 'drop'].forEach(type => document.addEventListener(type, ev => {
   const dz = ev.target.closest?.('#drop'); if (!dz) return;
