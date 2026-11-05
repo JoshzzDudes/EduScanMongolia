@@ -240,6 +240,24 @@ label.btn.disabled { opacity: 0.6; pointer-events: none; }
 .newspop { position: fixed; right: 16px; bottom: 16px; width: min(420px, calc(100vw - 32px)); z-index: 60; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px rgba(10,20,40,0.22); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .newspop[hidden] { display: none; }
 .newspop b .ic { color: var(--a2, var(--primary)); vertical-align: -3px; }
+/* intro video: dashboard card + lightbox (outside #view so re-renders don't stop playback) */
+.introcard { display: grid; grid-template-columns: minmax(220px, 360px) 1fr; gap: 20px; align-items: center; }
+@media (max-width: 680px) { .introcard { grid-template-columns: 1fr; gap: 14px; } }
+.introthumb { position: relative; display: block; width: 100%; border: 0; padding: 0; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; background: linear-gradient(135deg, #1b1446, #2c2370); cursor: pointer; text-decoration: none; }
+.introthumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.35s ease; }
+.introthumb:hover img, .introthumb:focus-visible img { transform: scale(1.035); }
+.introthumb .play { position: absolute; inset: 0; margin: auto; width: 60px; height: 60px; border-radius: 50%; background: rgba(255,255,255,0.94); color: var(--primary); display: grid; place-items: center; box-shadow: 0 8px 24px rgba(0,0,0,0.35); transition: transform 0.2s ease; }
+.introthumb:hover .play { transform: scale(1.08); }
+.introthumb .play::before { content: ''; margin-left: 6px; border-left: 20px solid var(--primary); border-top: 12px solid transparent; border-bottom: 12px solid transparent; }
+.introthumb .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,0.7); color: #fff; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 6px; }
+.introbox { position: fixed; inset: 0; z-index: 85; background: rgba(6,9,20,0.84); display: grid; place-items: center; padding: 16px; }
+.introbox[hidden] { display: none; }
+.introbox .inner { width: min(980px, 100%); display: flex; flex-direction: column; gap: 10px; color: #fff; }
+.introbox .introhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.introbox .introhead .btn { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: #fff; }
+.introbox .introhead .btn:hover { background: rgba(255,255,255,0.22); }
+.introbox video { width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; background: #000; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.introbox a { color: #c9d6ff; }
 .newsmini, .newslist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .newsmini li { display: flex; gap: 10px; align-items: flex-start; }
 .newsmini li > div { display: flex; flex-direction: column; gap: 2px; }
@@ -545,6 +563,7 @@ details.lv8 summary { cursor: pointer; }
   </div>
 </div>
 <div id="newsPop" class="newspop" role="dialog" aria-label="Шинэ боломжууд" hidden></div>
+<div id="introBox" class="introbox" role="dialog" aria-modal="true" aria-label="EduScan танилцуулга видео" hidden></div>
 <div id="toast" hidden></div>
 <input type="file" id="cam" class="hidden-input" accept="image/*" capture="environment" aria-label="Камераар зураг авах">
 <input type="file" id="pick" class="hidden-input" accept="image/*" aria-label="Зураг сонгох">
@@ -4544,6 +4563,35 @@ const examOpts = (sel, list = S.exams.filter(x => x.status !== 'archived')) => o
 const pctPill = p => `<span class="pill ${p >= settings().thrQuality ? 'ok' : p < settings().thrSuccess ? 'bad' : 'acc'}">${fmt(p)}%</span>`;
 const statusPill = s => `<span class="pill ${STATUS[s]?.[1] || ''}">${STATUS[s]?.[0] || s}</span>`;
 
+// =============== intro video ===============
+// Served with the web app (assets/). Elsewhere (the Claude version) the same file is opened from the web app's address in a new tab.
+const INTRO_LOCAL = /(^|\.)github\.io$|^localhost$|^127\.0\.0\.1$/.test(location.hostname);
+const INTRO_BASE = INTRO_LOCAL ? 'assets/' : 'https://joshzzdudes.github.io/EduScanMongolia/assets/';
+const INTRO = { mp4: INTRO_BASE + 'eduscan-intro.mp4', poster: INTRO_BASE + 'eduscan-intro.jpg', len: '1:38', LS: 'eduscan-intro-hidden' };
+const introHidden = () => { try { return localStorage.getItem(INTRO.LS) === '1'; } catch { return false; } };
+function introCard() {
+  if (introHidden()) return '';
+  const thumb = `<img src="${INTRO.poster}" alt="" loading="lazy" onerror="this.remove()"><span class="play" aria-hidden="true"></span><span class="dur">${INTRO.len}</span>`;
+  return `<div class="card introcard">
+    ${INTRO_LOCAL ? `<button class="introthumb" data-act="introPlay" aria-label="Танилцуулга видеог тоглуулах, ${INTRO.len}">${thumb}</button>` : `<a class="introthumb" href="${INTRO.mp4}" target="_blank" rel="noopener" aria-label="Танилцуулга видеог шинэ цонхонд үзэх, ${INTRO.len}">${thumb}</a>`}
+    <div class="stack" style="gap:8px"><span class="eyebrow">Танилцуулга видео · ${INTRO.len}</span><h2>EduScan хэрхэн ажилладаг вэ</h2>
+      <p class="muted">Анги, шалгалт үүсгэхээс эхлээд хариултын хуудас хэвлэх, камераар засах, задгай даалгаврыг AI-аар үнэлэх, тайлан гаргах хүртэлх алхмуудыг нэг дор харна.</p>
+      <div class="row">${INTRO_LOCAL ? `<button class="btn primary" data-act="introPlay">${ic('play')}Үзэх</button>` : `<a class="btn primary" href="${INTRO.mp4}" target="_blank" rel="noopener">${ic('play')}Үзэх</a>`}<button class="btn link" data-act="introHide">Нуух</button></div></div>
+  </div>`;
+}
+function introOpen() {
+  if (!INTRO_LOCAL) { window.open(INTRO.mp4, '_blank', 'noopener'); return; }
+  const box = $('#introBox'); if (!box) return;
+  box.innerHTML = `<div class="inner"><div class="introhead"><b>EduScan Mongolia · танилцуулга</b><button class="btn sm" data-act="introClose">${ic('x')}Хаах</button></div>
+    <video src="${INTRO.mp4}" poster="${INTRO.poster}" controls autoplay playsinline preload="metadata"></video>
+    <p class="small">Монгол хадмал видеон дотор бий. Тоглохгүй бол <a href="${INTRO.mp4}" target="_blank" rel="noopener">шинэ цонхонд нээнэ үү</a>.</p></div>`;
+  box.hidden = false;
+  box.onclick = e => { if (e.target === box) introClose(); };
+  icons();
+  box.querySelector('.introhead button')?.focus();
+}
+function introClose() { const box = $('#introBox'); if (!box || box.hidden) return; box.querySelector('video')?.pause(); box.hidden = true; box.innerHTML = ''; }
+
 // =============== pages: dashboard ===============
 function pDashboard() {
   const st = settings();
@@ -4571,6 +4619,7 @@ function pDashboard() {
     <div class="stat">${ic('users')}<span class="eyebrow">Идэвхтэй сурагч</span><b>${S.students.filter(s => s.active !== false).length}</b></div>
     <div class="stat">${ic('scan-line')}<span class="eyebrow">Зассан хуудас</span><b>${S.attempts.length}</b></div>
   </div>
+  ${introCard()}
   ${isNew ? `<div class="card"><h2>Эхлэх заавар</h2><p class="muted">Одоогоор өгөгдөл алга. Дараах алхмаар эхлээрэй, эсвэл жишээ өгөгдлөөр бүх урсгалыг туршиж үзнэ үү.</p>
     <div class="steps">${steps.map(([l, d, p], i) => `<button class="${d ? 'done' : ''}" data-go="${p}"><span class="chk">${d ? '✓' : i + 1}</span>${l}</button>`).join('')}</div>
     <div class="row"><button class="btn" data-act="addExample">${ic('sparkles')}Жишээ өгөгдөл нэмэх</button></div></div>` : ''}
@@ -5876,6 +5925,7 @@ function meMenu() {
     <p class="small muted mehow">${ic(Cap.cloud || Cap.mode === 'db' ? 'cloud' : 'hard-drive')}<span>${how}</span></p>
     <button data-go="account">${ic(Cap.cloudAvail && !Cap.cloud ? 'log-in' : 'pencil')}<span>${Cap.cloudAvail && !Cap.cloud ? 'Нэвтрэх / Бүртгүүлэх' : 'Профайл харах, засах'}</span></button>
     <button data-go="news">${ic('megaphone')}<span>Шинэ боломжууд${newsUnseen() ? ' <span class="pill acc">шинэ</span>' : ''}</span></button>
+    <button data-act="introShow">${ic('circle-play')}<span>Танилцуулга видео</span></button>
     <button data-go="settings">${ic('settings')}<span>Тохиргоо</span></button>
     ${Cap.admin ? `<button data-go="admin">${ic('shield-check')}<span>Бүртгэлүүд</span></button>` : ''}
     ${Cap.cloud ? `<button data-act="cloudOut" class="meout">${ic('log-out')}<span>Гарах</span></button>` : ''}`;
@@ -6049,9 +6099,12 @@ async function adminExport() {
 }
 
 // =============== what's new: shown once after an update, and on its own page ===============
-const APP_VER = '1.8.0', NEWS_LS = 'eduscan-news-seen';
+const APP_VER = '1.8.1', NEWS_LS = 'eduscan-news-seen';
 // newest first: [icon, title, what it does, page to open]
 const NEWS = [
+  { v: '1.8.1', date: '2026-11-06', items: [
+    ['circle-play', 'Танилцуулга видео', 'Хянах самбарт 1.5 минутын танилцуулга видео нэмэгдлээ: хуудас хэвлэхээс тайлан гаргах хүртэлх алхмуудыг монгол хадмалтай харуулна. Нуусан бол профайл цэсний «Танилцуулга видео»-оос дахин үзнэ.', 'dashboard'],
+  ] },
   { v: '1.8.0', date: '2026-11-04', items: [
     ['flask-conical', 'Томьёо, урвалын тэгшитгэл', 'H2SO4, Fe3+, SO42-, 2H2 + O2 -> 2H2O гэж энгийнээр бичихэд доод, дээд индекс, ионы цэнэг, урвалын сум өөрөө үзэмжтэй харагдана. Бутархай, язгуур, зэрэг, Грек үсгийг $…$ дотор бичнэ (жишээ нь c = n/V). Апп дотор болон хэвлэсэн хариултын хуудсанд яг адилхан гарна.'],
     ['pen-line', 'Томьёо оруулах товчлуур', 'Задгай даалгаврын текстийн доор x², →, ⇌, ↑, Δ, бутархай, язгуурын товч, бичих заавар, хуудсанд хэрхэн хэвлэгдэхийг урьдчилан харах хэсэг нэмэгдсэн. Claude-ийн эргэх холбоо, зөвлөмж дэх томьёо ч мөн хэлбэржинэ.'],
@@ -6178,6 +6231,10 @@ const A = {
   toggleNotif: () => { UI.notifOpen = !UI.notifOpen; UI.meOpen = false; renderTop(); try { window.lucide?.createIcons(); } catch {} },
   notifGo: el => { const n = notifications()[+el.dataset.i]; UI.notifOpen = false; n?.go(); },
   addExample: () => addExample(),
+  introPlay: () => introOpen(),
+  introClose: () => introClose(),
+  introHide: () => { try { localStorage.setItem(INTRO.LS, '1'); } catch {} toast('Видеог профайл цэсний «Танилцуулга видео»-оос дахин үзэж болно.'); render(); },
+  introShow: () => { UI.meOpen = false; renderTop(); try { localStorage.removeItem(INTRO.LS); } catch {} if (UI.page === 'dashboard') render(); introOpen(); },
   newExam: () => { if (UI.page !== 'exams') go('exams'); UI.newExam = true; render(); $('#nxName')?.focus(); },
   newExamClose: () => { UI.newExam = false; render(); },
   createExam: () => {
@@ -6559,6 +6616,7 @@ document.addEventListener('input', ev => {
 });
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && LV.on) { closeLive(); return; }
+  if (ev.key === 'Escape' && !$('#introBox').hidden) { introClose(); return; }
   if (ev.key === 'Escape') { UI.sideOpen = false; UI.notifOpen = false; UI.meOpen = false; $('#gdrop').hidden = true; renderSide(); renderTop(); }
   if (ev.key !== 'Enter') return;
   if (ev.target.id === 'bulkKey') A.bulkKey();

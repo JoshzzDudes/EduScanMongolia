@@ -21,6 +21,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  // video: let the browser stream it (range requests), never cache the large file
+  if (req.headers.has('range') || /\.mp4$/i.test(url.pathname)) return;
   if (url.origin === location.origin) {
     e.respondWith(fetch(req, { cache: 'no-cache' }) // revalidate with the server, so updates show at once
       .then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; })
